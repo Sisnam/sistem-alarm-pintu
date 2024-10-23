@@ -8,28 +8,14 @@ volatile bool door_open = false;   // Status pintu (true jika terbuka)
 volatile uint8_t counter = 0;      // Counter waktu (detik)
 volatile bool alarm_active = false; // Status alarm aktif atau tidak
 volatile bool toggle_state = false; // Status untuk kedap-kedip bergantian
-volatile bool last_button_state = true;  // Status terakhir tombol (untuk debounce)
 static char strbuf[128];           // Buffer untuk tampilan LCD
 
-// ISR untuk SW0 (PORTF PIN1) – Deteksi perubahan state tombol
+// ISR untuk SW0 (PORTF PIN1)
 ISR(PORTF_INT0_vect)
 {
-	bool current_button_state = !(PORTF.IN & PIN1_bm);  // Baca status tombol (0 = ditekan)
-
-	// Jika tombol dilepas (rising edge), buka pintu
-	if (last_button_state && !current_button_state) {
-		door_open = true;      // Pintu terbuka
-		alarm_active = true;   // Aktifkan alarm
-		counter = 0;           // Reset counter
-	}
-
-	// Jika tombol ditekan (falling edge), tutup pintu
-	if (!last_button_state && current_button_state) {
-		door_open = false;     // Pintu tertutup
-		alarm_active = false;  // Matikan alarm
-	}
-
-	last_button_state = current_button_state;  // Update status tombol terakhir
+	door_open = !door_open;   // Toggle status pintu
+	alarm_active = door_open; // Set status alarm berdasarkan status pintu
+	counter = 0;              // Reset counter setiap kali status berubah
 }
 
 // Inisialisasi interrupt eksternal untuk SW0
@@ -55,18 +41,18 @@ void setup_led(void)
 // Setup PWM untuk buzzer
 void setup_pwm_buzzer(void)
 {
-	/* Set output pin untuk servo */
+	/* Set output */
 	PORTC.DIR |= PIN0_bm;
 
 	/* Set Register */
-	TCC0.CTRLA = TC_CLKSEL_DIV8_gc;
+	TCC0.CTRLA = PIN1_bm; //(PIN2_bm) | (PIN0_bm);
 	TCC0.CTRLB = (PIN4_bm) | (PIN2_bm) | (PIN1_bm);
 	
-	/* Set Period PWM dimana Servo menggunakan 20ms(50Hz) */
-	TCC0.PER = 2000;
+	/* Set Period */
+	TCC0.PER = 1000;
 
-	/* Set Compare Register value default untuk 0 derajat */
-	TCC0.CCA = 500;
+	/* Set Compare Register value*/
+	TCC0.CCA = 0;
 }
 
 // Inisialisasi LCD
@@ -88,6 +74,8 @@ int main(void)
 	setup_pwm_buzzer();
 	init_interrupts();
 
+
+	
 	// Loop utama
 	while (1) {
 		if (alarm_active) {  // Jika alarm aktif (pintu terbuka)
@@ -96,8 +84,10 @@ int main(void)
 			snprintf(strbuf, sizeof(strbuf), "Waktu: %02d detik", counter);
 			gfx_mono_draw_string(strbuf, 0, 16, &sysfont);
 
-			if (counter >= 10) {
-				TCC0.CCA = 2000;  // Intensitas maksimal buzzer
+			// Kedip LED0 dan LED1 jika lebih dari 10 detik
+			if (counter >= 5) {
+				TCC0.CCA = 255;  // Intensitas maksimal buzzer
+
 				LED_On(LED0);  // Nyalakan LED0, Matikan LED1
 				LED_Off(LED1);
 				delay_ms(100);  // Tunda untuk simulasi
@@ -108,21 +98,17 @@ int main(void)
 				// Sebelum 10 detik, nyalakan LED0 dan LED1 secara bersamaan
 				LED_On(LED0);
 				LED_On(LED1);
-				
-				TCC0.CCA = 1000;  // Bunyi normal (intensitas sedang)
-				delay_ms(200);   // Bunyi pendek berulang
-				TCC0.CCA = 0;    // Matikan buzzer
-				delay_ms(200);
+				TCC0.CCA = 1000;  // Intensitas normal buzzer
 			}
 			// Tambah counter setiap detik
 			delay_ms(500);  // Tunggu 1 detik
 			counter++;
 			} else {  // Jika alarm tidak aktif (pintu tertutup)
 			// Reset semua
-			TCC0.CCA = 0;  // Matikan buzzer
-			LED_Off(IOPORT_CREATE_PIN(PORTD, 0));  // Matikan LED0
-			LED_Off(IOPORT_CREATE_PIN(PORTD, 1));  // Matikan LED1
-			gfx_mono_draw_string("Pintu Tertutup", 0, 0, &sysfont);  // Update LCD
+			TCC0.CCA = 200;  // Matikan buzzer
+			LED_Off(LED0);  // Nyalakan LED1, Matikan LED0
+			LED_Off(LED1);
+			gfx_mono_draw_string("Pintu Tertutup", 0, 0, &sysfont);  // Update status di LCD
 			counter = 0;  // Reset counter
 		}
 	}
