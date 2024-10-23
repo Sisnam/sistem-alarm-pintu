@@ -11,7 +11,7 @@ volatile bool toggle_state = false; // Status untuk kedap-kedip bergantian
 volatile bool last_button_state = true;  // Status terakhir tombol (untuk debounce)
 static char strbuf[128];           // Buffer untuk tampilan LCD
 
-// ISR untuk SW0 (PORTF PIN1) – Deteksi perubahan state tombol
+// ISR untuk SW0 (PORTF PIN1) ï¿½ Deteksi perubahan state tombol
 ISR(PORTF_INT0_vect)
 {
 	bool current_button_state = !(PORTF.IN & PIN1_bm);  // Baca status tombol (0 = ditekan)
@@ -53,12 +53,20 @@ void setup_led(void)
 }
 
 // Setup PWM untuk buzzer
-void setup_pwm_buzzer(void)
+void PWM_Init(void)
 {
-	PORTC.DIR |= PIN0_bm;  // Set PIN0 sebagai output (buzzer)
-	TCC0.CTRLB |= TC_WGMODE_FRQ_gc | TC0_CCAEN_bm;  // Fast PWM mode
-	TCC0.CTRLA |= TC_CLKSEL_DIV8_gc;  // Prescaler 8
-	TCC0.PER = 255;  // Periode PWM
+	/* Set output pin untuk servo */
+	PORTC.DIR |= PIN0_bm;
+
+	/* Set Register */
+	TCC0.CTRLA = TC_CLKSEL_DIV8_gc;
+	TCC0.CTRLB = (PIN4_bm) | (PIN2_bm) | (PIN1_bm);
+	
+	/* Set Period PWM dimana Servo menggunakan 20ms(50Hz) */
+	TCC0.PER = 5000;	
+
+	/* Set Compare Register value default untuk 0 derajat */
+	TCC0.CCA = 75; 
 }
 
 // Inisialisasi LCD
