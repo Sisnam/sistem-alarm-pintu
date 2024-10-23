@@ -52,6 +52,22 @@
  * running the ASF driver selector tool. Any changes will be discarded.
  */
 
+// From module: CPU specific features
+#include <ccp.h>
+#include <xmega_reset_cause.h>
+
+// From module: Delay routines
+#include <delay.h>
+
+// From module: GFX Monochrome - Menu System
+#include <gfx_mono_menu.h>
+
+// From module: GFX Monochrome - Monochrome Graphic Library
+#include <gfx_mono.h>
+
+// From module: GFX Monochrome - System Font
+#include <sysfont.h>
+
 // From module: GPIO - General purpose Input/Output
 #include <gpio.h>
 
@@ -64,8 +80,30 @@
 // From module: Interrupt management - XMEGA implementation
 #include <interrupt.h>
 
+// From module: NVM - Non Volatile Memory
+#include <nvm.h>
+
+// From module: PMIC - Programmable Multi-level Interrupt Controller
+#include <pmic.h>
+
 // From module: Part identification macros
 #include <parts.h>
+
+// From module: SPI - Serial Peripheral Interface
+#include <spi.h>
+
+// From module: SPI - XMEGA implementation
+#include <usart_spi.h>
+#include <xmega_usart_spi/usart_spi.h>
+
+// From module: ST7565R LCD controller
+#include <st7565r.h>
+
+// From module: System Clock Control - XMEGA A1U/A3U/A3BU/A4U/B/C implementation
+#include <sysclk.h>
+
+// From module: USART - Universal Synchronous/Asynchronous Receiver/Transmitter
+#include <usart.h>
 
 // From module: XMEGA compiler driver
 #include <compiler.h>
