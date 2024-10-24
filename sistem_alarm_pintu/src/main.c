@@ -15,6 +15,8 @@ void init_interrupts(void);
 void set_on_led(void);
 void set_flicker_led(void);
 void init_door_sensor(void);
+void reset_actuators(void);
+void check_door_sensor(void);
 
 // Inisiliasi Single Slope PWM
 void PWM_Init(void)
@@ -33,22 +35,67 @@ void PWM_Init(void)
 	TCC0.CCA = 0;
 }
 
-// ISR untuk SW0 (PORTF PIN1)
-ISR(PORTF_INT0_vect)
+// Reset Aktuator
+void reset_actuators(void)
 {
-	system_active = !system_active;
-	counter = 0;     // Reset counter setiap kali status berubah
+	TCC0.CCA = 0;  // Matikan buzzer
+	LED_Off(LED0);
+	LED_Off(LED1);
+	counter = 0;  // Reset counter
 }
 
-// Inisialisasi interrupt eksternal untuk SW0
+
+ISR(PORTF_INT0_vect)
+{
+	if (!(PORTF.IN & PIN1_bm)) {
+		// SW1 ditekan - Toggle status sistem
+		system_active = !system_active;
+		
+		if (!system_active) {
+			reset_actuators();  // Reset aktuator jika sistem dinonaktifkan
+			alarm_active = false;  // Pastikan alarm juga dinonaktifkan
+			gfx_mono_draw_string("Sistem Nonaktif", 0, 8, &sysfont); // Update status di LCD
+			snprintf(strbuf, sizeof(strbuf), "Waktu: %02d detik", counter);
+			gfx_mono_draw_string(strbuf, 0, 24, &sysfont);
+			delay_ms(100);
+		}
+		delay_ms(100);
+	}
+	
+	if (!(PORTF.IN & PIN2_bm)) {
+		// SW2 ditekan - Matikan aktuator jika sistem aktif
+		if (system_active) {
+			alarm_active = false;
+			reset_actuators();
+		}
+		delay_ms(100);
+	}
+}
+
 void init_interrupts(void)
 {
-	PORTF.DIRCLR = PIN1_bm;      // Set PIN1 sebagai input (SW0)
-	PORTF.PIN1CTRL = PORT_ISC_FALLING_gc; // Detect falling edges
-	PORTF.INT0MASK = PIN1_bm;     // Enable interrupt untuk PIN1
-	PORTF.INTCTRL = PORT_INT0LVL_LO_gc;   // Set level interrupt ke low
-	PMIC.CTRL |= PMIC_LOLVLEN_bm;    // Enable low-level interrupts
-	cpu_irq_enable();       // Enable global interrupts
+	// Set PIN1 dan PIN2 sebagai input
+	PORTF.DIRCLR = PIN1_bm | PIN2_bm;  // Set kedua PIN sebagai input
+
+	// Konfigurasi kontrol PIN1 (SW1) dan PIN2 (SW2)
+	PORTF.PIN1CTRL = PORT_ISC_FALLING_gc;  // Detect falling edge untuk SW1
+	PORTF.PIN2CTRL = PORT_ISC_FALLING_gc;  // Detect falling edge untuk SW2
+
+	// Aktifkan interrupt mask untuk PIN1 dan PIN2
+	PORTF.INT0MASK = PIN1_bm | PIN2_bm;  // Mask interrupt untuk PIN1 dan PIN2
+	PORTF.INTCTRL = PORT_INT0LVL_LO_gc;  // Set interrupt level ke low
+
+	// Aktifkan low-level interrupts
+	PMIC.CTRL |= PMIC_LOLVLEN_bm;
+
+	// Enable global interrupts
+	cpu_irq_enable();
+}
+
+void init_door_sensor(void)
+{
+	PORTE.DIRCLR = PIN0_bm;
+	PORTE.PIN0CTRL = PORT_OPC_PULLUP_gc;
 }
 
 void set_on_led(void)
@@ -80,11 +127,7 @@ void check_door_sensor(void)
 	}
 }
 
-void init_door_sensor(void)
-{
-	PORTE.DIRCLR = PIN0_bm;
-	PORTE.PIN0CTRL = PORT_OPC_PULLUP_gc;
-}
+
 
 int main(void)
 {
@@ -107,11 +150,15 @@ int main(void)
 	
 	init_door_sensor();
 	
+	gfx_mono_draw_string("Sistem Nonaktif", 0, 8, &sysfont); // Update status di LCD
+	snprintf(strbuf, sizeof(strbuf), "Waktu: %02d detik", counter);
+	gfx_mono_draw_string(strbuf, 0, 24, &sysfont);
+	
 	while (true)
 	{
 		// Mengecek status sensor pintu
 		check_door_sensor();
-		snprintf(strbuf, sizeof(strbuf), "Status Pintu: %s", door_open ? "Closed" : "Open");
+		snprintf(strbuf, sizeof(strbuf), "Status Pintu: %s", door_open ? "Closed" : "Opened");
 		gfx_mono_draw_string(strbuf, 0, 16, &sysfont);
 		
 		if (system_active)
@@ -121,10 +168,11 @@ int main(void)
 			snprintf(strbuf, sizeof(strbuf), "Waktu: %02d detik", counter);
 			gfx_mono_draw_string(strbuf, 0, 24, &sysfont);
 			
-			
 			if (!door_open){
-				alarm_active = true;
-					
+				alarm_active = true;				
+			}
+			
+			if (alarm_active){
 				// Kedip LED0 dan LED1 jika lebih dari 10 detik
 				if (counter < 10)
 				{
@@ -138,33 +186,13 @@ int main(void)
 				}
 
 				// Tambah counter setiap detik
-				counter++;				
-			}
-			else if (!alarm_active){
-				// Jika alarm tidak aktif (pintu tertutup)
-				// Reset semua
-				TCC0.CCA = 0;
-				LED_Off(LED0);
-				LED_Off(LED1);
-				counter = 0;
-
-				gfx_mono_draw_string("Sistem Nonaktif", 0, 8, &sysfont); // Update status di LCD
-				snprintf(strbuf, sizeof(strbuf), "Waktu: %02d detik", counter);
-				gfx_mono_draw_string(strbuf, 0, 24, &sysfont);
+				counter++;
+				delay_ms(100);
 			}
 		}
-		else
-		{
-			// Jika alarm tidak aktif (pintu tertutup)
-			// Reset semua
-			TCC0.CCA = 0;
-			LED_Off(LED0);
-			LED_Off(LED1);
-			counter = 0;
-
-			gfx_mono_draw_string("Sistem Nonaktif", 0, 8, &sysfont); // Update status di LCD
-			snprintf(strbuf, sizeof(strbuf), "Waktu: %02d detik", counter);
-			gfx_mono_draw_string(strbuf, 0, 24, &sysfont);
+		else{
+			reset_actuators();
 		}
+
 	}
 }
