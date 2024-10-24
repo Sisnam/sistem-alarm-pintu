@@ -13,6 +13,7 @@ void PWM_Init(void);
 void init_interrupts(void);
 void set_on_led(void);
 void set_flicker_led(void);
+void init_door_sensor(void);
 
 // Inisiliasi Single Slope PWM
 void PWM_Init(void)
@@ -67,6 +68,11 @@ void set_flicker_led(void)
 	LED_On(LED1);
 }
 
+void init_door_sensor(void)
+{
+	
+}
+
 int main(void)
 {
 	// Inisialisasi board
@@ -86,8 +92,16 @@ int main(void)
 
 	gfx_mono_draw_string("Sisnam+", 0, 0, &sysfont);
 	
+	init_door_sensor();
+	
 	while (true)
 	{
+		 // Mengecek status sensor pintu
+		 bool is_closed = !(PORTC.IN & PIN2_bm);
+		 snprintf(strbuf, sizeof(strbuf), "closed: %s", is_closed ? "true" : "false");
+		 gfx_mono_draw_string(strbuf, 0, 24, &sysfont);
+		 
+		 
 		if (alarm_active)
 		{
 			// Tampilkan status pintu dan counter di LCD
