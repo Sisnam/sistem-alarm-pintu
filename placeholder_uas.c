@@ -1,5 +1,6 @@
 #include <asf.h>
 #include <stdio.h>
+#include <string.h>
 #include "FreeRTOS/include/FreeRTOS.h"
 #include "FreeRTOS/include/queue.h"
 #include "FreeRTOS/include/task.h"
@@ -11,6 +12,7 @@ static portTASK_FUNCTION_PROTO(vCheckDoor, pvParameters);
 static portTASK_FUNCTION_PROTO(vAlarmControl, pvParameters);
 static portTASK_FUNCTION_PROTO(vDisplayStatus, pvParameters);
 static portTASK_FUNCTION_PROTO(vPushButton, pvParameters);
+static portTASK_FUNCTION_PROTO(vUARTTask, pvParameters);
 
 /* Global Variables */
 static char strbuf[128];
@@ -73,6 +75,55 @@ void check_door_sensor(void)
 	}
 	else{
 		door_open = true;
+	}
+}
+
+/* UART Configuration */
+void setUpSerial() {
+    USARTC0_BAUDCTRLB = 0;      // BSCALE = 0
+    USARTC0_BAUDCTRLA = 0x0C;   // Baudrate ~9600 @ 2MHz
+    USARTC0_CTRLA = 0;          // Disable interrupts
+    USARTC0_CTRLC = USART_CHSIZE_8BIT_gc; // 8-bit, no parity
+    USARTC0_CTRLB = USART_TXEN_bm | USART_RXEN_bm; // Enable TX & RX
+}
+
+void sendChar(char c) {
+    while (!(USARTC0_STATUS & USART_DREIF_bm)); // Wait until DATA buffer is empty
+    delay_ms(20); 
+    USARTC0_DATA = c;
+}
+
+void sendString(char *text)
+{
+    while(*text)
+    {
+        //sendChar(*text++);
+	usart_putchar(USART_SERIAL_EXAMPLE, *text++);
+    }
+}
+
+
+char receiveChar() {
+    while (!(USARTC0_STATUS & USART_RXCIF_bm)); // Wait until receive finish
+    delay_ms(20); 
+    return USARTC0_DATA;
+}
+
+void receiveString()
+{
+    int i = 0;
+    while(1){
+        //char inp = receiveChar();
+	char inp = usart_getchar(USART_SERIAL_EXAMPLE);
+        if(inp=='\n') break;
+        else reads[i++] = inp;
+    }
+	if(strcmp(str1,reads) == 0){
+		gpio_set_pin_high(J2_PIN0);
+	}else if(strcmp(str2,reads) == 0){
+		gpio_set_pin_high(J2_PIN0);
+	}else{
+		gpio_set_pin_low(J2_PIN0);
 	}
 }
 
@@ -187,6 +238,35 @@ static portTASK_FUNCTION(vDisplayStatus, pvParameters) {
     }
 }
 
+/* UART Task: Transmit System Status */
+static portTASK_FUNCTION(vUARTTask, pvParameters) {
+    setUpSerial();
+
+    while (1) {
+        char buffer[128];
+
+        // Transmit System Status
+        snprintf(buffer, sizeof(buffer), "Sistem: %s\n", system_active ? "Aktif" : "Nonaktif");
+        sendString(buffer);
+
+        snprintf(buffer, sizeof(buffer), "Pintu: %s\n", door_open ? "Tutup" : "Buka");
+        sendString(buffer);
+
+        snprintf(buffer, sizeof(buffer), "Counter: %d\n", counter);
+        sendString(buffer);
+
+        // Placeholder for receiving data
+        if (USARTC0_STATUS & USART_RXCIF_bm) {
+            char received = receiveChar();
+            sendString("Received: ");
+            sendChar(received);
+            sendChar('\n');
+        }
+
+        vTaskDelay(1000 / portTICK_PERIOD_MS); // Kirim data setiap 1 detik
+    }
+}
+
 
 /* Main Function */
 int main(void) {
@@ -208,9 +288,10 @@ int main(void) {
     PORTE.PIN0CTRL = PORT_OPC_PULLUP_gc;
 
     // Create Tasks from highest to lowest priority
-    xTaskCreate(vPushButton, "PushButton", 1000, NULL, tskIDLE_PRIORITY + 3, NULL);
-    xTaskCreate(vCheckDoor, "CheckDoor", 1000, NULL, tskIDLE_PRIORITY + 2, NULL);
-    xTaskCreate(vAlarmControl, "AlarmControl", 1000, NULL, tskIDLE_PRIORITY + 1, NULL);
+    xTaskCreate(vPushButton, "PushButton", 1000, NULL, tskIDLE_PRIORITY + 4, NULL);
+    xTaskCreate(vCheckDoor, "CheckDoor", 1000, NULL, tskIDLE_PRIORITY + 3, NULL);
+    xTaskCreate(vAlarmControl, "AlarmControl", 1000, NULL, tskIDLE_PRIORITY + 2, NULL);
+    xTaskCreate(vUARTTask, "UARTTask", 1000, NULL, tskIDLE_PRIORITY + 1, NULL);
     xTaskCreate(vDisplayStatus, "Display", 1000, NULL, tskIDLE_PRIORITY, NULL);
 
     // Start Scheduler
