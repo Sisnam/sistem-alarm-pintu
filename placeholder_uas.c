@@ -20,6 +20,7 @@ volatile bool system_active = false;
 volatile bool door_open = false;
 volatile bool alarm_active = false;
 volatile int counter = 0;
+volatile bool access_granted = false;
 
 /* Semaphore */
 SemaphoreHandle_t xSemaphoreDoor;
@@ -156,13 +157,14 @@ static portTASK_FUNCTION(vPushButton, pvParameters) {
 static portTASK_FUNCTION(vCheckDoor, pvParameters) {
     while (1) {
         if (system_active) {
-            bool current_status = is_door_open();
-            if (door_open != current_status) {
-                door_open = current_status;
-                if (!door_open) {
-                    // Door opened, send signal to alarm task
-                    xSemaphoreGive(xSemaphoreDoor);
+            check_door_sensor(); // Update door_open status
+            
+            if (!door_open) {  // Pintu terbuka
+                if (!access_granted) { // Akses tidak sah
+                    xSemaphoreGive(xSemaphoreDoor); // Trigger alarm
                 }
+            } else {  // Pintu ditutup kembali
+                access_granted = false; // Reset akses sah saat pintu ditutup
             }
         }
         vTaskDelay(100 / portTICK_PERIOD_MS);
@@ -175,7 +177,6 @@ static portTASK_FUNCTION(vCheckDoor, pvParameters) {
 static portTASK_FUNCTION(vAlarmControl, pvParameters) {
     PWM_Init();
     while (1) {
-        // Wait for signal from door task
         if (xSemaphoreTake(xSemaphoreDoor, portMAX_DELAY) == pdTRUE) {
             alarm_active = true;
             counter = 0;
@@ -193,13 +194,16 @@ static portTASK_FUNCTION(vAlarmControl, pvParameters) {
                 counter++;
                 vTaskDelay(100 / portTICK_PERIOD_MS);
             }
-            reset_actuators();  // Reset actuators after alarm
+            reset_actuators();
         }
         vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 }
 
-/* Task: Display Status on LCD */
+
+/************************************************************************/
+/* Task: Display Status on LCD                                          */
+/************************************************************************/
 static portTASK_FUNCTION(vDisplayStatus, pvParameters) {
     gfx_mono_init();
     gpio_set_pin_high(LCD_BACKLIGHT_ENABLE_PIN);
@@ -242,29 +246,28 @@ static portTASK_FUNCTION(vDisplayStatus, pvParameters) {
 static portTASK_FUNCTION(vUARTTask, pvParameters) {
     setUpSerial();
 
-    while (1) {
-        char buffer[128];
-
-        // Transmit System Status
-        snprintf(buffer, sizeof(buffer), "Sistem: %s\n", system_active ? "Aktif" : "Nonaktif");
-        sendString(buffer);
-
-        snprintf(buffer, sizeof(buffer), "Pintu: %s\n", door_open ? "Tutup" : "Buka");
-        sendString(buffer);
-
-        snprintf(buffer, sizeof(buffer), "Counter: %d\n", counter);
-        sendString(buffer);
-
-        // Placeholder for receiving data
-        if (USARTC0_STATUS & USART_RXCIF_bm) {
-            char received = receiveChar();
-            sendString("Received: ");
-            sendChar(received);
-            sendChar('\n');
-        }
-
-        vTaskDelay(1000 / portTICK_PERIOD_MS); // Kirim data setiap 1 detik
-    }
+	while (1) {
+	        char buffer[16];
+	        memset(buffer, 0, sizeof(buffer));
+	        int i = 0;
+	
+	        // Menerima data dari Arduino RFID
+	        while (1) {
+	            char c = receiveChar();
+	            if (c == '\n' || i >= 15) break;
+	            buffer[i++] = c;
+	        }
+	
+	        // Cek status akses
+	        if (strcmp(buffer, "ACCESS: TRUE") == 0) {
+	            access_granted = true;   // Akses sah
+	            alarm_active = false;    // Matikan alarm
+	            reset_actuators();       // Pastikan aktuator mati
+	        } else if (strcmp(buffer, "ACCESS: FALSE") == 0) {
+	            access_granted = false;  // Akses tidak sah
+	        }
+	        vTaskDelay(100 / portTICK_PERIOD_MS);
+	    }
 }
 
 
