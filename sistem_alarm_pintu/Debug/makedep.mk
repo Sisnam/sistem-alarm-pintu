@@ -20,6 +20,8 @@ src\ASF\common\services\gfx_mono\sysfont.c
 
 src\ASF\common\services\ioport\xmega\ioport_compat.c
 
+src\ASF\common\services\serial\usart_serial.c
+
 src\ASF\common\services\spi\xmega_spi\spi_master.c
 
 src\ASF\common\services\spi\xmega_usart_spi\usart_spi.c

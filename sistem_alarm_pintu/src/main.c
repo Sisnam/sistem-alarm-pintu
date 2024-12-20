@@ -252,8 +252,11 @@ static portTASK_FUNCTION(vUARTTask, pvParameters) {
 /************************************************************************/
 int main(void) {
     board_init();
-    PMIC.CTRL |= PMIC_LOLVLEN_bm;
-    cpu_irq_enable();
+    pmic_init();
+    gfx_mono_init();
+
+    gpio_set_pin_high(LCD_BACKLIGHT_ENABLE_PIN);
+    gfx_mono_draw_string("Sisnam+", 0, 0, &sysfont);
 
     // Initialize Semaphores
     xSemaphoreDoor = xSemaphoreCreateBinary();

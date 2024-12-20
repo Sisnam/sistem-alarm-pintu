@@ -93,14 +93,17 @@
 #include <spi.h>
 
 // From module: SPI - XMEGA implementation
-#include <usart_spi.h>
-#include <xmega_usart_spi/usart_spi.h>
+#include <spi_master.h>
+#include <spi_master.h>
 
 // From module: ST7565R LCD controller
 #include <st7565r.h>
 
 // From module: System Clock Control - XMEGA A1U/A3U/A3BU/A4U/B/C implementation
 #include <sysclk.h>
+
+// From module: USART - Serial interface - XMEGA implementation
+#include <serial.h>
 
 // From module: USART - Universal Synchronous/Asynchronous Receiver/Transmitter
 #include <usart.h>
