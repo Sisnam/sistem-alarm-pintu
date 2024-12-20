@@ -89,23 +89,22 @@ void receiveString(char *reads, int maxSize) {
 }
 
 /************************************************************************/
-/* PWM Initialization for Servo and Buzzer                             */
+/* Initiate Single Slope PWM                                            */
 /************************************************************************/
 void PWM_Init(void)
 {
-	/* PWM for Servo - TCC0 Channel A */
-	PORTC.DIR |= PIN0_bm; // Set PORTC PIN0 as output for Servo
-	TCC0.CTRLA = TC_CLKSEL_DIV8_gc;
-	TCC0.CTRLB = TC_WGMODE_SINGLESLOPE_gc | TC0_CCAEN_bm;
-	TCC0.PER = 5000; // 20ms period (50Hz)
-	TCC0.CCA = 75;  // Initial duty cycle for 0 degrees
+	/* Set output for Buzzer */
+	PORTC.DIR |= PIN0_bm;
 
-	/* PWM for Buzzer - TCC1 Channel A */
-	PORTD.DIR |= PIN0_bm; // Set PORTD PIN0 as output for Buzzer
-	TCD0.CTRLA = TC_CLKSEL_DIV8_gc;
-	TCD0.CTRLB = TC_WGMODE_SINGLESLOPE_gc | TC0_CCAEN_bm;
-	TCD0.PER = 1000; // Set period for Buzzer frequency
-	TCD0.CCA = 0;    // Start with buzzer off
+	/* Set Register */
+	TCC0.CTRLA = PIN1_bm; //(PIN2_bm) | (PIN0_bm);
+	TCC0.CTRLB = (PIN4_bm) | (PIN2_bm) | (PIN1_bm);
+
+	/* Set Period */
+	TCC0.PER = 1000;
+
+	/* Set Compare Register value*/
+	TCC0.CCA = 0;
 }
 
 /************************************************************************/
@@ -113,10 +112,8 @@ void PWM_Init(void)
 /************************************************************************/
 void reset_actuators(void)
 {
-	// Turn off the buzzer
-	TCD0.CCA = 0;
-	// Reset servo to 0 degrees
-	TCC0.CCA = 75;
+	// Reset buzzer
+	TCC0.CCA = 0;
 	// Turn off LED
 	LED_Off(LED0);
 	LED_Off(LED1);
@@ -124,84 +121,69 @@ void reset_actuators(void)
 	counter = 0;
 }
 
-/************************************************************************/
-/* Function to Check Door Sensor                                        */
-/************************************************************************/
-void check_door_sensor(void)
-{
-	bool is_closed = PORTE.IN & PIN0_bm;
-	door_open = !is_closed;
-}
 
 /************************************************************************/
 /* Task: Push Button Handling                                           */
 /************************************************************************/
 static portTASK_FUNCTION(vPushButton, pvParameters) {
+	gfx_mono_draw_string("Sistem Nonaktif", 0, 8, &sysfont); 
 	while (1) {		
 		if (!(PORTF.IN & PIN1_bm)) {  // SW1 toggle system state
 			system_active = !system_active;
 			
-			gfx_mono_draw_string("Sistem: ", 0, 8, &sysfont);
-			gfx_mono_draw_string(system_active ? "Aktif" : "Nonaktif", 50, 8, &sysfont);
+			gfx_mono_draw_string("Sistem Aktif", 0, 8, &sysfont); 
+			
+			if (!door_open){
+				alarm_active = true;
+			}
 			
 			if (!system_active) {
+				gfx_mono_draw_string("Sistem Nonaktif", 0, 8, &sysfont); 
+				
+				reset_actuators();
+				
+				// Ensure alarm is off
+				alarm_active = false;
+			}
+				
+			// xSemaphoreGive(xSemaphoreSystem);  // Signal status change
+			vTaskDelay(100 / portTICK_PERIOD_MS);
+		}
+		if (!(PORTF.IN & PIN2_bm)) {  // SW2 reset actuators
+			if (system_active) {
+				alarm_active = false;
 				reset_actuators();
 			}
 			
-			xSemaphoreGive(xSemaphoreSystem);  // Signal status change
-			vTaskDelay(200 / portTICK_PERIOD_MS);
-		}
-		if (!(PORTF.IN & PIN2_bm)) {  // SW2 reset actuators
-			alarm_active = false;
-			reset_actuators();
-			xSemaphoreGive(xSemaphoreSystem);  // Signal system reset
-			vTaskDelay(200 / portTICK_PERIOD_MS);
-		}
-		
-		gfx_mono_draw_string("Sistem: ", 0, 8, &sysfont);
-		gfx_mono_draw_string(system_active ? "Aktif" : "Nonaktif", 50, 8, &sysfont);
-		
+			// xSemaphoreGive(xSemaphoreSystem);  // Signal system reset
+			vTaskDelay(100 / portTICK_PERIOD_MS);
+		}	
 		vTaskDelay(100 / portTICK_PERIOD_MS);
 	}
 }
 
 /************************************************************************/
-/* Task: Check Door Status                                              */
+/* Task: Check Door Status (DONE)                                       */
 /************************************************************************/
 static portTASK_FUNCTION(vCheckDoor, pvParameters) {
+	// Initialize door sensor pin
+	PORTE.DIRCLR = PIN0_bm;
+	PORTE.PIN0CTRL = PORT_OPC_PULLUP_gc;
+	gfx_mono_draw_string("Pintu Tertutup", 0, 16, &sysfont); 
 	while (1) {
-
-		if (system_active) {
-			check_door_sensor(); // Update door_open status
-			
-			snprintf(strbuf, sizeof(strbuf), "Pintu: %s", door_open ? "Buka" : "Tutup");
-			gfx_mono_draw_string(strbuf, 0, 16, &sysfont);
-			
-			if (!door_open && !access_granted) {
-				xSemaphoreGive(xSemaphoreDoor); // Trigger alarm
-			}
-		snprintf(strbuf, sizeof(strbuf), "Pintu: %s", door_open ? "Buka" : "Tutup");
-		gfx_mono_draw_string(strbuf, 0, 16, &sysfont);
+		
+		bool is_open = PORTE.IN & PIN0_bm;
+		
+		// Update door status
+		if (!is_open) {
+			door_open = false;
+			gfx_mono_draw_string("Pintu Tertutup", 0, 16, &sysfont); 
 		}
-		vTaskDelay(100 / portTICK_PERIOD_MS);
-	}
-}
-
-/************************************************************************/
-/* Servo Motor Control Task                                             */
-/************************************************************************/
-static portTASK_FUNCTION(vServoControl, pvParameters) {
-	while (1) {
-		if (access_granted) {
-			// Move servo to unlock position (180 degrees)
-			TCC0.CCA = 325;
-			vTaskDelay(3000 / portTICK_PERIOD_MS); // Hold position for 3 seconds
-
-			// Reset servo to lock position (0 degrees)
-			TCC0.CCA = 75;
-			access_granted = false;
-			counter = 0; // Confirm counter reset after servo action
+		else{
+			door_open = true;
+			gfx_mono_draw_string("Pintu Terbuka", 0, 16, &sysfont); 
 		}
+	
 		vTaskDelay(100 / portTICK_PERIOD_MS);
 	}
 }
@@ -210,34 +192,32 @@ static portTASK_FUNCTION(vServoControl, pvParameters) {
 /* Task: Alarm Control                                                  */
 /************************************************************************/
 static portTASK_FUNCTION(vAlarmControl, pvParameters) {
+	gfx_mono_draw_string("Waktu: 0", 0, 24, &sysfont);
+	PWM_Init();
 	while (1) {
-		if (xSemaphoreTake(xSemaphoreDoor, portMAX_DELAY) == pdTRUE) {
-			alarm_active = true;
-			counter = 0;
-
-			while (alarm_active && system_active) {
+		//if (xSemaphoreTake(xSemaphoreDoor, portMAX_DELAY) == pdTRUE) {
+			if (alarm_active) {
 				if (counter < 10) {
-					TCD0.CCA = 500; // Low buzzer frequency
+					TCC0.CCA = 500; // Low buzzer frequency
 					LED_On(LED0);
 					LED_On(LED1);
 					} else {
-					TCD0.CCA = 800; // High buzzer frequency
+					TCC0.CCA = 800; // High buzzer frequency
 					LED_Toggle(LED0);
 					LED_Toggle(LED1);
 				}
 				counter++;
 				
-				snprintf(strbuf, sizeof(strbuf), "Counter: %02d", counter);
+				snprintf(strbuf, sizeof(strbuf), "Waktu: %02d", counter);
 				gfx_mono_draw_string(strbuf, 0, 24, &sysfont);
 				
 				vTaskDelay(100 / portTICK_PERIOD_MS);
 			}
 			reset_actuators();
 			counter = 0; // Confirm counter reset after alarm deactivation
-			snprintf(strbuf, sizeof(strbuf), "Counter: %02d", counter);
-			gfx_mono_draw_string(strbuf, 0, 24, &sysfont);
+			gfx_mono_draw_string("Waktu: 0", 0, 24, &sysfont);
 
-		}
+		//}
 		vTaskDelay(100 / portTICK_PERIOD_MS);
 	}
 }
@@ -299,24 +279,18 @@ int main(void) {
 	
 	usart_init_rs232(USART_SERIAL_EXAMPLE, &USART_SERIAL_OPTIONS);
 	
-	
-	// Initialize PWM for Servo and Buzzer
-	PWM_Init();
 
 	// Initialize button pins
 	PORTF.DIRCLR = PIN1_bm | PIN2_bm;
 	PORTF.PIN1CTRL = PORT_ISC_FALLING_gc;
 	PORTF.PIN2CTRL = PORT_ISC_FALLING_gc;
 
-	// Initialize door sensor pin
-	PORTE.DIRCLR = PIN0_bm;
-	PORTE.PIN0CTRL = PORT_OPC_PULLUP_gc;
 
 	// Create Tasks
 	xTaskCreate(vPushButton, "PushButton", 1000, NULL, tskIDLE_PRIORITY + 3, NULL);
 	xTaskCreate(vCheckDoor, "CheckDoor", 1000, NULL, tskIDLE_PRIORITY + 2, NULL);
 	xTaskCreate(vAlarmControl, "AlarmControl", 1000, NULL, tskIDLE_PRIORITY + 1, NULL);
-	xTaskCreate(vServoControl, "ServoControl", 1000, NULL, tskIDLE_PRIORITY, NULL);
+//	xTaskCreate(vServoControl, "ServoControl", 1000, NULL, tskIDLE_PRIORITY, NULL);
 //	xTaskCreate(vUARTTask, "UARTTask", 1000, NULL, tskIDLE_PRIORITY + 4, NULL);
 
 	// Start Scheduler
