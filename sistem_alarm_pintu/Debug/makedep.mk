@@ -36,5 +36,21 @@ src\ASF\xmega\drivers\spi\spi.c
 
 src\ASF\xmega\drivers\usart\usart.c
 
+src\FreeRTOS\croutine.c
+
+src\FreeRTOS\event_groups.c
+
+src\FreeRTOS\list.c
+
+src\FreeRTOS\portable\GCC\ATXMega256A3BU\port.c
+
+src\FreeRTOS\portable\MemMang\heap_3.c
+
+src\FreeRTOS\queue.c
+
+src\FreeRTOS\tasks.c
+
+src\FreeRTOS\timers.c
+
 src\main.c
 

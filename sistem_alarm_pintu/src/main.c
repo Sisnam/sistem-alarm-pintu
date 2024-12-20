@@ -1,33 +1,3 @@
-/**
- * \file
- *
- * \brief Empty user application template
- *
- */
-
-/**
- * \mainpage User Application template doxygen documentation
- *
- * \par Empty user application template
- *
- * Bare minimum empty user application template
- *
- * \par Content
- *
- * -# Include the ASF header files (through asf.h)
- * -# "Insert system clock initialization code here" comment
- * -# Minimal main function that starts with a call to board_init()
- * -# "Insert application code here" comment
- *
- */
-
-/*
- * Include header files for all drivers that have been imported from
- * Atmel Software Framework (ASF).
- */
-/*
- * Support and FAQ: visit <a href="https://www.microchip.com/support/">Microchip Support</a>
- */
 #include <asf.h>
 #include <stdio.h>
 #include <string.h>
@@ -56,6 +26,48 @@ volatile bool access_granted = false;
 /* Semaphore */
 SemaphoreHandle_t xSemaphoreDoor;
 SemaphoreHandle_t xSemaphoreSystem;
+
+/************************************************************************/
+/* UART Configuration                                                   */
+/************************************************************************/
+void setUpSerial() {
+    USARTC0_BAUDCTRLB = 0;      // BSCALE = 0
+    USARTC0_BAUDCTRLA = 0x0C;   // Baudrate ~9600 @ 2MHz
+    USARTC0_CTRLA = 0;          // Disable interrupts
+    USARTC0_CTRLC = USART_CHSIZE_8BIT_gc; // 8-bit, no parity
+    USARTC0_CTRLB = USART_TXEN_bm | USART_RXEN_bm; // Enable TX & RX
+}
+
+void sendChar(char c) {
+    while (!(USARTC0_STATUS & USART_DREIF_bm)); // Wait until DATA buffer is empty
+    delay_ms(20); 
+    USARTC0_DATA = c;
+}
+
+void sendString(char *text) {
+    while (*text) {
+        sendChar(*text++);
+    }
+}
+
+char receiveChar() {
+    while (!(USARTC0_STATUS & USART_RXCIF_bm)); // Wait until receive finish
+    delay_ms(20); 
+    return USARTC0_DATA;
+}
+
+void receiveString(char *reads, int maxSize) {
+    int i = 0;
+    while (1) {
+        char inp = receiveChar();
+        if (inp == '\n' || i >= maxSize - 1) {
+            reads[i] = '\0'; // Null terminate the string
+            break;
+        } else {
+            reads[i++] = inp;
+        }
+    }
+}
 
 /************************************************************************/
 /* PWM Initialization for Servo and Buzzer                             */
@@ -100,55 +112,6 @@ void check_door_sensor(void)
 {
     bool is_closed = PORTE.IN & PIN0_bm;
     door_open = !is_closed;
-}
-
-/* UART Configuration */
-void setUpSerial() {
-    USARTC0_BAUDCTRLB = 0;      // BSCALE = 0
-    USARTC0_BAUDCTRLA = 0x0C;   // Baudrate ~9600 @ 2MHz
-    USARTC0_CTRLA = 0;          // Disable interrupts
-    USARTC0_CTRLC = USART_CHSIZE_8BIT_gc; // 8-bit, no parity
-    USARTC0_CTRLB = USART_TXEN_bm | USART_RXEN_bm; // Enable TX & RX
-}
-
-void sendChar(char c) {
-    while (!(USARTC0_STATUS & USART_DREIF_bm)); // Wait until DATA buffer is empty
-    delay_ms(20); 
-    USARTC0_DATA = c;
-}
-
-void sendString(char *text)
-{
-    while(*text)
-    {
-        //sendChar(*text++);
-	usart_putchar(USART_SERIAL_EXAMPLE, *text++);
-    }
-}
-
-
-char receiveChar() {
-    while (!(USARTC0_STATUS & USART_RXCIF_bm)); // Wait until receive finish
-    delay_ms(20); 
-    return USARTC0_DATA;
-}
-
-void receiveString()
-{
-    int i = 0;
-    while(1){
-        //char inp = receiveChar();
-	char inp = usart_getchar(USART_SERIAL_EXAMPLE);
-        if(inp=='\n') break;
-        else reads[i++] = inp;
-    }
-	if(strcmp(str1,reads) == 0){
-		gpio_set_pin_high(J2_PIN0);
-	}else if(strcmp(str2,reads) == 0){
-		gpio_set_pin_high(J2_PIN0);
-	}else{
-		gpio_set_pin_low(J2_PIN0);
-	}
 }
 
 /************************************************************************/
@@ -260,27 +223,26 @@ static portTASK_FUNCTION(vDisplayStatus, pvParameters) {
 }
 
 /************************************************************************/
-/* UART Task: Transmit System Status                                    */
+/* UART Task: Receive RFID Logs and Status                              */
 /************************************************************************/
 static portTASK_FUNCTION(vUARTTask, pvParameters) {
+    char logBuffer[128];
     while (1) {
-        char buffer[16];
-        memset(buffer, 0, sizeof(buffer));
-        int i = 0;
+        memset(logBuffer, 0, sizeof(logBuffer));
+        receiveString(logBuffer, sizeof(logBuffer));
 
-        while (1) {
-            char c = receiveChar();
-            if (c == '\n' || i >= 15) break;
-            buffer[i++] = c;
+        // Parse the log message
+        if (strstr(logBuffer, "ACCESS: TRUE")) {
+            access_granted = true;
+            alarm_active = false;
+            reset_actuators();
+        } else if (strstr(logBuffer, "ACCESS: FALSE")) {
+            access_granted = false;
         }
 
-        if (strcmp(buffer, "ACCESS: TRUE") == 0) {
-            access_granted = true;   // Akses sah
-			alarm_active = false;    // Matikan alarm
-			reset_actuators();       // Pastikan aktuator mati
-        } else if (strcmp(buffer, "ACCESS: FALSE") == 0) {
-            access_granted = false;  // Akses tidak sah
-        }
+        // Optional: Display the log on LCD
+        gfx_mono_draw_string(logBuffer, 0, 32, &sysfont);
+
         vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 }
@@ -296,6 +258,9 @@ int main(void) {
     // Initialize Semaphores
     xSemaphoreDoor = xSemaphoreCreateBinary();
     xSemaphoreSystem = xSemaphoreCreateBinary();
+
+    // Initialize UART
+    setUpSerial();
 
     // Initialize PWM for Servo and Buzzer
     PWM_Init();
