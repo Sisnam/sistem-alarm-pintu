@@ -17,7 +17,6 @@
 static portTASK_FUNCTION_PROTO(vCheckDoor, pvParameters);
 static portTASK_FUNCTION_PROTO(vAlarmControl, pvParameters);
 static portTASK_FUNCTION_PROTO(vServoControl, pvParameters);
-static portTASK_FUNCTION_PROTO(vDisplayStatus, pvParameters);
 static portTASK_FUNCTION_PROTO(vPushButton, pvParameters);
 static portTASK_FUNCTION_PROTO(vUARTTask, pvParameters);
 
@@ -138,12 +137,17 @@ void check_door_sensor(void)
 /* Task: Push Button Handling                                           */
 /************************************************************************/
 static portTASK_FUNCTION(vPushButton, pvParameters) {
-	while (1) {
+	while (1) {		
 		if (!(PORTF.IN & PIN1_bm)) {  // SW1 toggle system state
 			system_active = !system_active;
+			
+			gfx_mono_draw_string("Sistem: ", 0, 8, &sysfont);
+			gfx_mono_draw_string(system_active ? "Aktif" : "Nonaktif", 50, 8, &sysfont);
+			
 			if (!system_active) {
 				reset_actuators();
 			}
+			
 			xSemaphoreGive(xSemaphoreSystem);  // Signal status change
 			vTaskDelay(200 / portTICK_PERIOD_MS);
 		}
@@ -153,6 +157,10 @@ static portTASK_FUNCTION(vPushButton, pvParameters) {
 			xSemaphoreGive(xSemaphoreSystem);  // Signal system reset
 			vTaskDelay(200 / portTICK_PERIOD_MS);
 		}
+		
+		gfx_mono_draw_string("Sistem: ", 0, 8, &sysfont);
+		gfx_mono_draw_string(system_active ? "Aktif" : "Nonaktif", 50, 8, &sysfont);
+		
 		vTaskDelay(100 / portTICK_PERIOD_MS);
 	}
 }
@@ -162,11 +170,18 @@ static portTASK_FUNCTION(vPushButton, pvParameters) {
 /************************************************************************/
 static portTASK_FUNCTION(vCheckDoor, pvParameters) {
 	while (1) {
+
 		if (system_active) {
 			check_door_sensor(); // Update door_open status
+			
+			snprintf(strbuf, sizeof(strbuf), "Pintu: %s", door_open ? "Buka" : "Tutup");
+			gfx_mono_draw_string(strbuf, 0, 16, &sysfont);
+			
 			if (!door_open && !access_granted) {
 				xSemaphoreGive(xSemaphoreDoor); // Trigger alarm
 			}
+		snprintf(strbuf, sizeof(strbuf), "Pintu: %s", door_open ? "Buka" : "Tutup");
+		gfx_mono_draw_string(strbuf, 0, 16, &sysfont);
 		}
 		vTaskDelay(100 / portTICK_PERIOD_MS);
 	}
@@ -211,33 +226,22 @@ static portTASK_FUNCTION(vAlarmControl, pvParameters) {
 					LED_Toggle(LED1);
 				}
 				counter++;
+				
+				snprintf(strbuf, sizeof(strbuf), "Counter: %02d", counter);
+				gfx_mono_draw_string(strbuf, 0, 24, &sysfont);
+				
 				vTaskDelay(100 / portTICK_PERIOD_MS);
 			}
 			reset_actuators();
 			counter = 0; // Confirm counter reset after alarm deactivation
+			snprintf(strbuf, sizeof(strbuf), "Counter: %02d", counter);
+			gfx_mono_draw_string(strbuf, 0, 24, &sysfont);
+
 		}
 		vTaskDelay(100 / portTICK_PERIOD_MS);
 	}
 }
 
-/************************************************************************/
-/* Task: Display Status on LCD                                          */
-/************************************************************************/
-static portTASK_FUNCTION(vDisplayStatus, pvParameters) {
-	while (1) {
-		//if (xSemaphoreTake(xSemaphoreSystem, portMAX_DELAY) == pdTRUE) {
-			gfx_mono_draw_string("Sistem: ", 0, 8, &sysfont);
-			gfx_mono_draw_string(system_active ? "Aktif" : "Nonaktif", 50, 8, &sysfont);
-
-			snprintf(strbuf, sizeof(strbuf), "Pintu: %s", door_open ? "Buka" : "Tutup");
-			gfx_mono_draw_string(strbuf, 0, 16, &sysfont);
-
-			snprintf(strbuf, sizeof(strbuf), "Counter: %02d", counter);
-			gfx_mono_draw_string(strbuf, 0, 24, &sysfont);
-		//}
-		vTaskDelay(100 / portTICK_PERIOD_MS);
-	}
-}
 
 /************************************************************************/
 /* UART Task: Receive RFID Logs and Status                              */
@@ -309,12 +313,11 @@ int main(void) {
 	PORTE.PIN0CTRL = PORT_OPC_PULLUP_gc;
 
 	// Create Tasks
-	xTaskCreate(vPushButton, "PushButton", 1000, NULL, tskIDLE_PRIORITY + 4, NULL);
-	xTaskCreate(vCheckDoor, "CheckDoor", 1000, NULL, tskIDLE_PRIORITY + 3, NULL);
-	xTaskCreate(vAlarmControl, "AlarmControl", 1000, NULL, tskIDLE_PRIORITY + 2, NULL);
-	xTaskCreate(vServoControl, "ServoControl", 1000, NULL, tskIDLE_PRIORITY + 2, NULL);
-//	xTaskCreate(vUARTTask, "UARTTask", 1000, NULL, tskIDLE_PRIORITY + 1, NULL);
-	xTaskCreate(vDisplayStatus, "Display", 1000, NULL, tskIDLE_PRIORITY, NULL);
+	xTaskCreate(vPushButton, "PushButton", 1000, NULL, tskIDLE_PRIORITY + 3, NULL);
+	xTaskCreate(vCheckDoor, "CheckDoor", 1000, NULL, tskIDLE_PRIORITY + 2, NULL);
+	xTaskCreate(vAlarmControl, "AlarmControl", 1000, NULL, tskIDLE_PRIORITY + 1, NULL);
+	xTaskCreate(vServoControl, "ServoControl", 1000, NULL, tskIDLE_PRIORITY, NULL);
+//	xTaskCreate(vUARTTask, "UARTTask", 1000, NULL, tskIDLE_PRIORITY + 4, NULL);
 
 	// Start Scheduler
 	vTaskStartScheduler();
