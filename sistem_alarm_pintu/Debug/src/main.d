@@ -66,7 +66,16 @@ src/main.d src/main.o: ../src/main.c ../src/asf.h \
  ../src/ASF/common/services/spi/xmega_usart_spi/usart_spi.h \
  ../src/ASF/xmega/boards/xmega_a3bu_xplained/led.h \
  c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\avr8\avr8-gnu-toolchain\avr\include\stdio.h \
- c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\avr8\avr8-gnu-toolchain\lib\gcc\avr\5.4.0\include\stdarg.h
+ c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\avr8\avr8-gnu-toolchain\lib\gcc\avr\5.4.0\include\stdarg.h \
+ c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\avr8\avr8-gnu-toolchain\avr\include\string.h \
+ ../src/FreeRTOS/include/FreeRTOS.h ../src/config/FreeRTOSConfig.h \
+ ../src/FreeRTOS/include/projdefs.h ../src/FreeRTOS/include/portable.h \
+ ../src/FreeRTOS/include/deprecated_definitions.h \
+ ../src/FreeRTOS/portable/GCC/ATXMega256A3BU/portmacro.h \
+ ../src/FreeRTOS/include/mpu_wrappers.h ../src/FreeRTOS/include/queue.h \
+ ../src/FreeRTOS/include/task.h ../src/FreeRTOS/include/list.h \
+ ../src/FreeRTOS/include/timers.h ../src/FreeRTOS/include/task.h \
+ ../src/FreeRTOS/include/semphr.h ../src/FreeRTOS/include/queue.h
 
 ../src/asf.h:
 
@@ -217,3 +226,33 @@ c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\avr8\avr8-gnu-toolchain\avr\
 c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\avr8\avr8-gnu-toolchain\avr\include\stdio.h:
 
 c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\avr8\avr8-gnu-toolchain\lib\gcc\avr\5.4.0\include\stdarg.h:
+
+c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\avr8\avr8-gnu-toolchain\avr\include\string.h:
+
+../src/FreeRTOS/include/FreeRTOS.h:
+
+../src/config/FreeRTOSConfig.h:
+
+../src/FreeRTOS/include/projdefs.h:
+
+../src/FreeRTOS/include/portable.h:
+
+../src/FreeRTOS/include/deprecated_definitions.h:
+
+../src/FreeRTOS/portable/GCC/ATXMega256A3BU/portmacro.h:
+
+../src/FreeRTOS/include/mpu_wrappers.h:
+
+../src/FreeRTOS/include/queue.h:
+
+../src/FreeRTOS/include/task.h:
+
+../src/FreeRTOS/include/list.h:
+
+../src/FreeRTOS/include/timers.h:
+
+../src/FreeRTOS/include/task.h:
+
+../src/FreeRTOS/include/semphr.h:
+
+../src/FreeRTOS/include/queue.h:
