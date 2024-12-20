@@ -126,16 +126,16 @@ void reset_actuators(void)
 /* Task: Push Button Handling                                           */
 /************************************************************************/
 static portTASK_FUNCTION(vPushButton, pvParameters) {
+	// Initialize button pins
+	PORTF.DIRCLR = PIN1_bm | PIN2_bm;
+	PORTF.PIN1CTRL = PORT_ISC_FALLING_gc;
+	PORTF.PIN2CTRL = PORT_ISC_FALLING_gc;
 	gfx_mono_draw_string("Sistem Nonaktif", 0, 8, &sysfont); 
 	while (1) {		
 		if (!(PORTF.IN & PIN1_bm)) {  // SW1 toggle system state
 			system_active = !system_active;
 			
 			gfx_mono_draw_string("Sistem Aktif", 0, 8, &sysfont); 
-			
-			if (!door_open){
-				alarm_active = true;
-			}
 			
 			if (!system_active) {
 				gfx_mono_draw_string("Sistem Nonaktif", 0, 8, &sysfont); 
@@ -196,27 +196,34 @@ static portTASK_FUNCTION(vAlarmControl, pvParameters) {
 	PWM_Init();
 	while (1) {
 		//if (xSemaphoreTake(xSemaphoreDoor, portMAX_DELAY) == pdTRUE) {
-			if (alarm_active) {
-				if (counter < 10) {
-					TCC0.CCA = 500; // Low buzzer frequency
-					LED_On(LED0);
-					LED_On(LED1);
-					} else {
-					TCC0.CCA = 800; // High buzzer frequency
-					LED_Toggle(LED0);
-					LED_Toggle(LED1);
+			if (system_active){
+				
+				if (door_open){
+					alarm_active = true;
 				}
-				counter++;
 				
-				snprintf(strbuf, sizeof(strbuf), "Waktu: %02d", counter);
-				gfx_mono_draw_string(strbuf, 0, 24, &sysfont);
-				
-				vTaskDelay(100 / portTICK_PERIOD_MS);
+				if (alarm_active) {
+					if (counter < 10) {
+						TCC0.CCA = 500; // Low buzzer frequency
+						LED_On(LED0);
+						LED_On(LED1);
+						} else {
+						TCC0.CCA = 800; // High buzzer frequency
+						LED_Toggle(LED0);
+						LED_Toggle(LED1);
+					}
+					counter++;
+					
+					snprintf(strbuf, sizeof(strbuf), "Waktu: %02d", counter);
+					gfx_mono_draw_string(strbuf, 0, 24, &sysfont);
+					
+					vTaskDelay(100 / portTICK_PERIOD_MS);
+				}
+			} 
+			else{
+				reset_actuators();
+				gfx_mono_draw_string("Waktu: 0", 0, 24, &sysfont);	
 			}
-			reset_actuators();
-			counter = 0; // Confirm counter reset after alarm deactivation
-			gfx_mono_draw_string("Waktu: 0", 0, 24, &sysfont);
-
 		//}
 		vTaskDelay(100 / portTICK_PERIOD_MS);
 	}
@@ -227,6 +234,24 @@ static portTASK_FUNCTION(vAlarmControl, pvParameters) {
 /* UART Task: Receive RFID Logs and Status                              */
 /************************************************************************/
 static portTASK_FUNCTION(vUARTTask, pvParameters) {
+	PORTC_OUTSET = PIN3_bm; // PC3 as TX
+	PORTC_DIRSET = PIN3_bm; //TX pin as output
+		
+	PORTC_OUTCLR = PIN2_bm; //PC2 as RX
+	PORTC_DIRCLR = PIN2_bm; //RX pin as input
+		
+	// Initialize UART
+	setUpSerial();
+		
+	static usart_rs232_options_t USART_SERIAL_OPTIONS = {
+		.baudrate = USART_SERIAL_EXAMPLE_BAUDRATE,
+		.charlength = USART_SERIAL_CHAR_LENGTH,
+		.paritytype = USART_SERIAL_PARITY,
+		.stopbits = USART_SERIAL_STOP_BIT
+	};
+		
+	usart_init_rs232(USART_SERIAL_EXAMPLE, &USART_SERIAL_OPTIONS);
+	
 	char logBuffer[128];
 	while (1) {
 		memset(logBuffer, 0, sizeof(logBuffer));
@@ -258,34 +283,9 @@ int main(void) {
 	gfx_mono_draw_string("Sisnam+", 0, 0, &sysfont);
 
 	// Initialize Semaphores
-	xSemaphoreDoor = xSemaphoreCreateBinary();
-	xSemaphoreSystem = xSemaphoreCreateBinary();
-	
-	PORTC_OUTSET = PIN3_bm; // PC3 as TX
-	PORTC_DIRSET = PIN3_bm; //TX pin as output
-	    
-	PORTC_OUTCLR = PIN2_bm; //PC2 as RX
-	PORTC_DIRCLR = PIN2_bm; //RX pin as input
-	
-	// Initialize UART
-	setUpSerial();
-	
-	static usart_rs232_options_t USART_SERIAL_OPTIONS = {
-		.baudrate = USART_SERIAL_EXAMPLE_BAUDRATE,
-		.charlength = USART_SERIAL_CHAR_LENGTH,
-		.paritytype = USART_SERIAL_PARITY,
-		.stopbits = USART_SERIAL_STOP_BIT
-	};
-	
-	usart_init_rs232(USART_SERIAL_EXAMPLE, &USART_SERIAL_OPTIONS);
-	
-
-	// Initialize button pins
-	PORTF.DIRCLR = PIN1_bm | PIN2_bm;
-	PORTF.PIN1CTRL = PORT_ISC_FALLING_gc;
-	PORTF.PIN2CTRL = PORT_ISC_FALLING_gc;
-
-
+	//xSemaphoreDoor = xSemaphoreCreateBinary();
+	//xSemaphoreSystem = xSemaphoreCreateBinary();
+		
 	// Create Tasks
 	xTaskCreate(vPushButton, "PushButton", 1000, NULL, tskIDLE_PRIORITY + 3, NULL);
 	xTaskCreate(vCheckDoor, "CheckDoor", 1000, NULL, tskIDLE_PRIORITY + 2, NULL);
