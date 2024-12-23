@@ -16,76 +16,33 @@
 /* Task Definitions */
 static portTASK_FUNCTION_PROTO(vCheckDoor, pvParameters);
 static portTASK_FUNCTION_PROTO(vAlarmControl, pvParameters);
-static portTASK_FUNCTION_PROTO(vServoControl, pvParameters);
 static portTASK_FUNCTION_PROTO(vPushButton, pvParameters);
-static portTASK_FUNCTION_PROTO(vUARTTask, pvParameters);
 
 /* Global Variables */
 static char strbuf[128];
-volatile bool system_active = false;
-volatile bool door_open = false;
-volatile bool alarm_active = false;
-volatile int counter = 0;
-volatile bool access_granted = false;
+bool system_active = false;  // Removed volatile as semaphores handle synchronization
+bool door_open = false;      // Removed volatile for the same reason
+bool alarm_active = false;   // Removed volatile for the same reason
+int counter = 0;
 
-/* Semaphore */
+/* Semaphore and Mutex */
 SemaphoreHandle_t xSemaphoreDoor;
-SemaphoreHandle_t xSemaphoreSystem;
+SemaphoreHandle_t xMutexSystemActive;
 
 /************************************************************************/
 /* UART Configuration                                                   */
 /************************************************************************/
 void setUpSerial()
 {
-	// Baud rate selection
-	// BSEL = (2000000 / (2^0 * 16*9600) -1 = 12.0208... ~ 12 -> BSCALE = 0
-	// FBAUD = ( (2000000)/(2^0*16(12+1)) = 9615.384 -> mendekati lah ya
-	
-	USARTC0_BAUDCTRLB = 0; //memastikan BSCALE = 0
-	USARTC0_BAUDCTRLA = 0x0C; // 12
-	
-	//USARTC0_BAUDCTRLB = 0; //Just to be sure that BSCALE is 0
-	//USARTC0_BAUDCTRLA = 0xCF; // 207
-	
-	//Disable interrupts, just for safety
+	USARTC0_BAUDCTRLB = 0; // Ensure BSCALE is 0
+	USARTC0_BAUDCTRLA = 0x0C; // Set baud rate
+
+	// Disable interrupts, just for safety
 	USARTC0_CTRLA = 0;
-	//8 data bits, no parity and 1 stop bit
+	// 8 data bits, no parity, 1 stop bit
 	USARTC0_CTRLC = USART_CHSIZE_8BIT_gc;
-	
-	//Enable receive and transmit
+	// Enable receive and transmit
 	USARTC0_CTRLB = USART_TXEN_bm | USART_RXEN_bm;
-}
-
-
-void sendChar(char c) {
-	while (!(USARTC0_STATUS & USART_DREIF_bm)); // Wait until DATA buffer is empty
-	delay_ms(20);
-	USARTC0_DATA = c;
-}
-
-void sendString(char *text) {
-	while (*text) {
-		sendChar(*text++);
-	}
-}
-
-char receiveChar() {
-	while (!(USARTC0_STATUS & USART_RXCIF_bm)); // Wait until receive finish
-	delay_ms(20);
-	return USARTC0_DATA;
-}
-
-void receiveString(char *reads, int maxSize) {
-	int i = 0;
-	while (1) {
-		char inp = receiveChar();
-		if (inp == '\n' || i >= maxSize - 1) {
-			reads[i] = '\0'; // Null terminate the string
-			break;
-			} else {
-			reads[i++] = inp;
-		}
-	}
 }
 
 /************************************************************************/
@@ -97,7 +54,7 @@ void PWM_Init(void)
 	PORTC.DIR |= PIN0_bm;
 
 	/* Set Register */
-	TCC0.CTRLA = PIN1_bm; //(PIN2_bm) | (PIN0_bm);
+	TCC0.CTRLA = PIN1_bm;
 	TCC0.CTRLB = (PIN4_bm) | (PIN2_bm) | (PIN1_bm);
 
 	/* Set Period */
@@ -121,70 +78,71 @@ void reset_actuators(void)
 	counter = 0;
 }
 
-
 /************************************************************************/
 /* Task: Push Button Handling                                           */
 /************************************************************************/
 static portTASK_FUNCTION(vPushButton, pvParameters) {
-	// Initialize button pins
 	PORTF.DIRCLR = PIN1_bm | PIN2_bm;
 	PORTF.PIN1CTRL = PORT_ISC_FALLING_gc;
 	PORTF.PIN2CTRL = PORT_ISC_FALLING_gc;
-	gfx_mono_draw_string("Sistem Nonaktif", 0, 8, &sysfont); 
-	while (1) {		
+
+	gfx_mono_draw_string("Sistem Nonaktif", 0, 8, &sysfont);
+
+	while (1) {
 		if (!(PORTF.IN & PIN1_bm)) {  // SW1 toggle system state
-			system_active = !system_active;
-			
-			gfx_mono_draw_string("Sistem Aktif", 0, 8, &sysfont); 
-			
-			if (!system_active) {
-				gfx_mono_draw_string("Sistem Nonaktif", 0, 8, &sysfont); 
-				
-				reset_actuators();
-				
-				// Ensure alarm is off
-				alarm_active = false;
+			if (xSemaphoreTake(xMutexSystemActive, portMAX_DELAY) == pdTRUE) {
+				system_active = !system_active;
+				gfx_mono_draw_string(system_active ? "Sistem Aktif    " : "Sistem Nonaktif     ", 0, 8, &sysfont);
+				if (!system_active) {
+					reset_actuators();
+					alarm_active = false;
+				}
+				xSemaphoreGive(xMutexSystemActive);
 			}
-				
-			// xSemaphoreGive(xSemaphoreSystem);  // Signal status change
-			vTaskDelay(100 / portTICK_PERIOD_MS);
+			vTaskDelay(pdMS_TO_TICKS(100));
 		}
 		if (!(PORTF.IN & PIN2_bm)) {  // SW2 reset actuators
-			if (system_active) {
-				alarm_active = false;
-				reset_actuators();
+			if (xSemaphoreTake(xMutexSystemActive, portMAX_DELAY) == pdTRUE) {
+				if (system_active) {
+					alarm_active = false;
+					reset_actuators();
+				}
+				xSemaphoreGive(xMutexSystemActive);
 			}
-			
-			// xSemaphoreGive(xSemaphoreSystem);  // Signal system reset
-			vTaskDelay(100 / portTICK_PERIOD_MS);
-		}	
-		vTaskDelay(100 / portTICK_PERIOD_MS);
+			vTaskDelay(pdMS_TO_TICKS(100));
+		}
+		vTaskDelay(pdMS_TO_TICKS(100));
 	}
 }
 
 /************************************************************************/
-/* Task: Check Door Status (DONE)                                       */
+/* Task: Check Door Status                                              */
 /************************************************************************/
 static portTASK_FUNCTION(vCheckDoor, pvParameters) {
-	// Initialize door sensor pin
 	PORTE.DIRCLR = PIN0_bm;
 	PORTE.PIN0CTRL = PORT_OPC_PULLUP_gc;
-	gfx_mono_draw_string("Pintu Tertutup", 0, 16, &sysfont); 
+
+	bool prev_door_open = false; // Track previous state
 	while (1) {
-		
 		bool is_open = PORTE.IN & PIN0_bm;
+
+		//if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(100)) == pdTRUE) {
+			if (is_open != prev_door_open) {
+				prev_door_open = is_open;
+				//if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(100)) == pdTRUE) {
+					door_open = is_open;
+					//xSemaphoreGive(xMutexSystemActive);
+				//}
+				snprintf(strbuf, sizeof(strbuf), "Pintu: %s", door_open ? "Terbuka  " : "Tertutup ");
+				gfx_mono_draw_string(strbuf, 0, 16, &sysfont);
+				//if (xSemaphoreGive(xSemaphoreDoor) != pdTRUE) {
+					xSemaphoreGive(xSemaphoreDoor);
+				//}
+			//}
+			//xSemaphoreGive(xMutexSystemActive);
+		}
 		
-		// Update door status
-		if (!is_open) {
-			door_open = false;
-			gfx_mono_draw_string("Pintu Tertutup", 0, 16, &sysfont); 
-		}
-		else{
-			door_open = true;
-			gfx_mono_draw_string("Pintu Terbuka", 0, 16, &sysfont); 
-		}
-	
-		vTaskDelay(100 / portTICK_PERIOD_MS);
+		vTaskDelay(pdMS_TO_TICKS(100));
 	}
 }
 
@@ -192,81 +150,46 @@ static portTASK_FUNCTION(vCheckDoor, pvParameters) {
 /* Task: Alarm Control                                                  */
 /************************************************************************/
 static portTASK_FUNCTION(vAlarmControl, pvParameters) {
-	gfx_mono_draw_string("Waktu: 0", 0, 24, &sysfont);
+	gfx_mono_draw_string("Waktu: 0            ", 0, 24, &sysfont);
 	PWM_Init();
+
 	while (1) {
-		//if (xSemaphoreTake(xSemaphoreDoor, portMAX_DELAY) == pdTRUE) {
-			if (system_active){
-				
-				if (door_open){
+		if (xSemaphoreTake(xSemaphoreDoor, portMAX_DELAY) == pdTRUE) {
+			if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(250)) == pdTRUE) {
+				gfx_mono_draw_string("MASUK COY       ", 0, 0, &sysfont);
+				if (system_active && door_open) {
+					gfx_mono_draw_string("HARUSNYA NYALA COY", 0, 0, &sysfont);
 					alarm_active = true;
+					} else if (alarm_active) {
+						gfx_mono_draw_string("JANGAN MATI COYYY", 0, 0, &sysfont);
+					} else {
+					gfx_mono_draw_string("HARUSNYA MATI COY", 0, 0, &sysfont);
+					alarm_active = false;
 				}
-				
-				if (alarm_active) {
-					if (counter < 10) {
-						TCC0.CCA = 500; // Low buzzer frequency
-						LED_On(LED0);
-						LED_On(LED1);
-						} else {
-						TCC0.CCA = 800; // High buzzer frequency
-						LED_Toggle(LED0);
-						LED_Toggle(LED1);
-					}
-					counter++;
-					
-					snprintf(strbuf, sizeof(strbuf), "Waktu: %02d", counter);
-					gfx_mono_draw_string(strbuf, 0, 24, &sysfont);
-					
-					vTaskDelay(100 / portTICK_PERIOD_MS);
-				}
-			} 
-			else{
-				reset_actuators();
-				gfx_mono_draw_string("Waktu: 0", 0, 24, &sysfont);	
+				xSemaphoreGive(xMutexSystemActive);
 			}
-		//}
-		vTaskDelay(100 / portTICK_PERIOD_MS);
-	}
-}
-
-
-/************************************************************************/
-/* UART Task: Receive RFID Logs and Status                              */
-/************************************************************************/
-static portTASK_FUNCTION(vUARTTask, pvParameters) {
-	PORTC_OUTSET = PIN3_bm; // PC3 as TX
-	PORTC_DIRSET = PIN3_bm; //TX pin as output
-		
-	PORTC_OUTCLR = PIN2_bm; //PC2 as RX
-	PORTC_DIRCLR = PIN2_bm; //RX pin as input
-		
-	// Initialize UART
-	setUpSerial();
-		
-	static usart_rs232_options_t USART_SERIAL_OPTIONS = {
-		.baudrate = USART_SERIAL_EXAMPLE_BAUDRATE,
-		.charlength = USART_SERIAL_CHAR_LENGTH,
-		.paritytype = USART_SERIAL_PARITY,
-		.stopbits = USART_SERIAL_STOP_BIT
-	};
-		
-	usart_init_rs232(USART_SERIAL_EXAMPLE, &USART_SERIAL_OPTIONS);
-	
-	char logBuffer[128];
-	while (1) {
-		memset(logBuffer, 0, sizeof(logBuffer));
-		receiveString(logBuffer, sizeof(logBuffer));
-
-		// Parse the log message
-		if (strstr(logBuffer, "ACCESS: TRUE")) {
-			access_granted = true;
-			alarm_active = false;
-			reset_actuators();
-			} else if (strstr(logBuffer, "ACCESS: FALSE")) {
-			access_granted = false;
+			xSemaphoreGive(xSemaphoreDoor);
 		}
 
-		vTaskDelay(100 / portTICK_PERIOD_MS);
+		if (alarm_active) {
+			if (counter < 10) {
+				TCC0.CCA = 500; // Low buzzer frequency
+				LED_On(LED0);
+				LED_On(LED1);
+				} else {
+				TCC0.CCA = 800; // High buzzer frequency
+				LED_Toggle(LED0);
+				LED_Toggle(LED1);
+			}
+			counter++;
+			snprintf(strbuf, sizeof(strbuf), "Waktu: %02d           ", counter);
+			gfx_mono_draw_string(strbuf, 0, 24, &sysfont);
+			} else {
+			reset_actuators();
+			gfx_mono_draw_string("Waktu: 0          ", 0, 24, &sysfont);
+		}
+
+		vTaskDelay(pdMS_TO_TICKS(100));
 	}
 }
 
@@ -283,15 +206,15 @@ int main(void) {
 	gfx_mono_draw_string("Sisnam+", 0, 0, &sysfont);
 
 	// Initialize Semaphores
-	//xSemaphoreDoor = xSemaphoreCreateBinary();
-	//xSemaphoreSystem = xSemaphoreCreateBinary();
-		
+	xSemaphoreDoor = xSemaphoreCreateBinary();
+	xMutexSystemActive = xSemaphoreCreateMutex();
+	
+	
+
 	// Create Tasks
 	xTaskCreate(vPushButton, "PushButton", 1000, NULL, tskIDLE_PRIORITY + 3, NULL);
 	xTaskCreate(vCheckDoor, "CheckDoor", 1000, NULL, tskIDLE_PRIORITY + 2, NULL);
 	xTaskCreate(vAlarmControl, "AlarmControl", 1000, NULL, tskIDLE_PRIORITY + 1, NULL);
-//	xTaskCreate(vServoControl, "ServoControl", 1000, NULL, tskIDLE_PRIORITY, NULL);
-//	xTaskCreate(vUARTTask, "UARTTask", 1000, NULL, tskIDLE_PRIORITY + 4, NULL);
 
 	// Start Scheduler
 	vTaskStartScheduler();
