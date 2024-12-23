@@ -26,6 +26,8 @@
 
 #include <SPI.h>
 #include <MFRC522.h>
+#include <Arduino_FreeRTOS.h>
+#include <semphr.h>  // add the FreeRTOS functions for Semaphores (or Flags).
 
 // Pin Definitions for RC522
 #define SS_PIN 53
@@ -42,50 +44,79 @@ const byte authorizedUIDs[][4] = {
 
 const int numOfUIDs = sizeof(authorizedUIDs) / sizeof(authorizedUIDs[0]);
 
+// Shared variables
+volatile bool newCardDetected = false;
+volatile bool accessGranted = false;
+String detectedUID = "";
+
+// Function prototypes
+void TaskReadRFID(void *pvParameters);
+void TaskHandleData(void *pvParameters);
+
 void setup() {
     Serial.begin(9600);   // UART ke ATMega
-    Serial1.begin(9600);  // UART ke Arduino Dashboard
+    Serial1.begin(9600);  // UART ke Dashboard
     SPI.begin();
     mfrc522.PCD_Init();
 
     Serial.println("RFID Reader Ready...");
-    Serial1.println("RFID Reader Log Ready...");
+
+    // Create FreeRTOS tasks
+    xTaskCreate(TaskReadRFID, "ReadRFID", 128, NULL, 1, NULL);
+    xTaskCreate(TaskHandleData, "HandleData", 128, NULL, 1, NULL);
 }
 
 void loop() {
-    // Cek jika ada kartu RFID
-    if (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial()) {
-        delay(100);
-        return;
+    // FreeRTOS handles the tasks; loop can remain empty.
+}
+
+// Task untuk membaca kartu RFID
+void TaskReadRFID(void *pvParameters) {
+    for (;;) {
+        // Cek jika ada kartu RFID
+        if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
+            byte readUID[4];
+            for (byte i = 0; i < 4; i++) {
+                readUID[i] = mfrc522.uid.uidByte[i];
+            }
+
+            // Format UID menjadi string tanpa separator
+            String uidString = "";
+            for (byte i = 0; i < 4; i++) {
+                if (readUID[i] < 0x10) {
+                    uidString += "0";  // Tambahkan leading zero jika perlu
+                }
+                uidString += String(readUID[i], HEX);
+            }
+
+            // Simpan UID dan status akses ke variabel global
+            detectedUID = uidString;
+            accessGranted = checkAccess(readUID);
+            newCardDetected = true;
+
+            mfrc522.PICC_HaltA();
+        }
+
+        vTaskDelay(100 / portTICK_PERIOD_MS); // Delay untuk mengurangi beban CPU
     }
+}
 
-    // Membaca UID
-    byte readUID[4];
-    for (byte i = 0; i < 4; i++) {
-        readUID[i] = mfrc522.uid.uidByte[i];
+// Task untuk menangani data dan mengirim log
+void TaskHandleData(void *pvParameters) {
+    for (;;) {
+        if (newCardDetected) {
+            // Kirim log ke dashboard melalui Serial
+            sendLogToDashboard(detectedUID, accessGranted ? "TRUE" : "FALSE");
+
+            // Kirim status ke ATmega melalui Serial1 (TRUE/FALSE saja)
+            sendToAtmega(accessGranted);
+
+            // Reset flag
+            newCardDetected = false;
+        }
+
+        vTaskDelay(50 / portTICK_PERIOD_MS); // Delay untuk menjaga task tetap berjalan
     }
-
-    // Format UID menjadi string
-    String uidString = "";
-    for (byte i = 0; i < 4; i++) {
-        uidString += String(readUID[i], HEX);
-        if (i < 3) uidString += ":";
-    }
-
-    // Periksa akses UID
-    bool accessGranted = checkAccess(readUID);
-
-    // Kirim status ke ATMega melalui Serial
-    if (accessGranted) {
-        Serial.println("ACCESS: TRUE");
-        sendLogToDashboard(uidString, "TRUE");
-    } else {
-        Serial.println("ACCESS: FALSE");
-        sendLogToDashboard(uidString, "FALSE");
-    }
-
-    delay(1000);
-    mfrc522.PICC_HaltA();
 }
 
 // Fungsi untuk memeriksa UID dengan list akses sah
@@ -106,5 +137,14 @@ bool checkAccess(byte uid[]) {
 // Fungsi untuk mengirim log akses ke Dashboard melalui Serial1
 void sendLogToDashboard(String uid, String status) {
     String log = "UID: " + uid + " | ACCESS: " + status;
-    Serial1.println(log);  // Kirim log ke Dashboard
+    Serial.println(log);  // Kirim log ke Dashboard
+}
+
+// Fungsi untuk mengirim data ke ATmega melalui Serial1 (TRUE/FALSE saja)
+void sendToAtmega(bool accessGranted) {
+    if (accessGranted) {
+        Serial1.println("TRUE");
+    } else {
+        Serial1.println("FALSE");
+    }
 }
