@@ -20,10 +20,10 @@ static portTASK_FUNCTION_PROTO(vPushButton, pvParameters);
 
 /* Global Variables */
 static char strbuf[128];
-volatile bool system_active = false;
-volatile bool door_open = false;
-volatile bool alarm_active = false;
-volatile int counter = 0;
+bool system_active = false;  // Removed volatile as semaphores handle synchronization
+bool door_open = false;      // Removed volatile for the same reason
+bool alarm_active = false;   // Removed volatile for the same reason
+int counter = 0;
 
 /* Semaphore and Mutex */
 SemaphoreHandle_t xSemaphoreDoor;
@@ -90,9 +90,9 @@ static portTASK_FUNCTION(vPushButton, pvParameters) {
 
 	while (1) {
 		if (!(PORTF.IN & PIN1_bm)) {  // SW1 toggle system state
-			if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(100)) == pdTRUE) {
+			if (xSemaphoreTake(xMutexSystemActive, portMAX_DELAY) == pdTRUE) {
 				system_active = !system_active;
-				gfx_mono_draw_string(system_active ? "Sistem Aktif    " : "Sistem Nonaktif", 0, 8, &sysfont);
+				gfx_mono_draw_string(system_active ? "Sistem Aktif    " : "Sistem Nonaktif     ", 0, 8, &sysfont);
 				if (!system_active) {
 					reset_actuators();
 					alarm_active = false;
@@ -102,7 +102,7 @@ static portTASK_FUNCTION(vPushButton, pvParameters) {
 			vTaskDelay(pdMS_TO_TICKS(100));
 		}
 		if (!(PORTF.IN & PIN2_bm)) {  // SW2 reset actuators
-			if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(100)) == pdTRUE) {
+			if (xSemaphoreTake(xMutexSystemActive, portMAX_DELAY) == pdTRUE) {
 				if (system_active) {
 					alarm_active = false;
 					reset_actuators();
@@ -126,17 +126,22 @@ static portTASK_FUNCTION(vCheckDoor, pvParameters) {
 	while (1) {
 		bool is_open = PORTE.IN & PIN0_bm;
 
-		//if (xSemaphoreTake(xSemaphoreDoor, pdMS_TO_TICKS(100)) == pdTRUE) {
+		//if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(100)) == pdTRUE) {
 			if (is_open != prev_door_open) {
 				prev_door_open = is_open;
-				door_open = is_open;
-
+				//if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(100)) == pdTRUE) {
+					door_open = is_open;
+					//xSemaphoreGive(xMutexSystemActive);
+				//}
 				snprintf(strbuf, sizeof(strbuf), "Pintu: %s", door_open ? "Terbuka  " : "Tertutup ");
 				gfx_mono_draw_string(strbuf, 0, 16, &sysfont);
-
-				xSemaphoreGive(xSemaphoreDoor); // Notify door state change
-			}
-		//}
+				//if (xSemaphoreGive(xSemaphoreDoor) != pdTRUE) {
+					xSemaphoreGive(xSemaphoreDoor);
+				//}
+			//}
+			//xSemaphoreGive(xMutexSystemActive);
+		}
+		
 		vTaskDelay(pdMS_TO_TICKS(100));
 	}
 }
@@ -149,12 +154,14 @@ static portTASK_FUNCTION(vAlarmControl, pvParameters) {
 	PWM_Init();
 
 	while (1) {
-		if (xSemaphoreTake(xSemaphoreDoor, pdMS_TO_TICKS(100)) == pdTRUE) {
-			if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(100)) == pdTRUE) {
+		if (xSemaphoreTake(xSemaphoreDoor, pdMS_TO_TICKS(250)) == pdTRUE) {
+			if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(250)) == pdTRUE) {
 				gfx_mono_draw_string("MASUK COY       ", 0, 0, &sysfont);
 				if (system_active && door_open) {
 					gfx_mono_draw_string("HARUSNYA NYALA COY", 0, 0, &sysfont);
 					alarm_active = true;
+					} else if (alarm_active) {
+						gfx_mono_draw_string("JANGAN MATI COYYY", 0, 0, &sysfont);
 					} else {
 					gfx_mono_draw_string("HARUSNYA MATI COY", 0, 0, &sysfont);
 					alarm_active = false;
@@ -201,6 +208,8 @@ int main(void) {
 	// Initialize Semaphores
 	xSemaphoreDoor = xSemaphoreCreateBinary();
 	xMutexSystemActive = xSemaphoreCreateMutex();
+	
+	
 
 	// Create Tasks
 	xTaskCreate(vPushButton, "PushButton", 1000, NULL, tskIDLE_PRIORITY + 3, NULL);
