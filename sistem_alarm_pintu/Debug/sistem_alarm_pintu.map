@@ -2961,7 +2961,7 @@ END GROUP
  *(.fini0)
                 0x000037c2                _etext = .
 
-.data           0x00802000       0x94 load address 0x000037c2
+.data           0x00802000       0xc4 load address 0x000037c2
                 0x00802000                PROVIDE (__data_start, .)
  *(.data)
  .data          0x00802000        0x6 c:/program files (x86)/atmel/studio/7.0/toolchain/avr8/avr8-gnu-toolchain/bin/../lib/gcc/avr/5.4.0/../../../../avr/lib/avrxmega6\libc.a(malloc.o)
@@ -2981,95 +2981,94 @@ END GROUP
  .rodata.str1.1
                 0x00802014        0x8 src/FreeRTOS/timers.o
  .rodata.str1.1
-                0x0080201c       0x77 src/main.o
+                0x0080201c       0xa8 src/main.o
  *(.gnu.linkonce.r*)
-                0x00802094                . = ALIGN (0x2)
- *fill*         0x00802093        0x1 
-                0x00802094                _edata = .
-                0x00802094                PROVIDE (__data_end, .)
+                0x008020c4                . = ALIGN (0x2)
+                0x008020c4                _edata = .
+                0x008020c4                PROVIDE (__data_end, .)
 
-.bss            0x00802094      0x301
-                0x00802094                PROVIDE (__bss_start, .)
+.bss            0x008020c4      0x301
+                0x008020c4                PROVIDE (__bss_start, .)
  *(.bss)
  *(.bss*)
  .bss.framebuffer
-                0x00802094      0x200 src/ASF/common/services/gfx_mono/gfx_mono_c12832_a1z.o
+                0x008020c4      0x200 src/ASF/common/services/gfx_mono/gfx_mono_c12832_a1z.o
  .bss.fbpointer
-                0x00802294        0x2 src/ASF/common/services/gfx_mono/gfx_mono_framebuffer.o
+                0x008022c4        0x2 src/ASF/common/services/gfx_mono/gfx_mono_framebuffer.o
  .bss.uxSchedulerSuspended
-                0x00802296        0x1 src/FreeRTOS/tasks.o
+                0x008022c6        0x1 src/FreeRTOS/tasks.o
  .bss.uxTaskNumber
-                0x00802297        0x1 src/FreeRTOS/tasks.o
+                0x008022c7        0x1 src/FreeRTOS/tasks.o
  .bss.xNumOfOverflows
-                0x00802298        0x1 src/FreeRTOS/tasks.o
+                0x008022c8        0x1 src/FreeRTOS/tasks.o
  .bss.xYieldPending
-                0x00802299        0x1 src/FreeRTOS/tasks.o
+                0x008022c9        0x1 src/FreeRTOS/tasks.o
  .bss.uxPendedTicks
-                0x0080229a        0x1 src/FreeRTOS/tasks.o
+                0x008022ca        0x1 src/FreeRTOS/tasks.o
  .bss.xSchedulerRunning
-                0x0080229b        0x1 src/FreeRTOS/tasks.o
+                0x008022cb        0x1 src/FreeRTOS/tasks.o
  .bss.uxTopReadyPriority
-                0x0080229c        0x1 src/FreeRTOS/tasks.o
+                0x008022cc        0x1 src/FreeRTOS/tasks.o
  .bss.xTickCount
-                0x0080229d        0x2 src/FreeRTOS/tasks.o
+                0x008022cd        0x2 src/FreeRTOS/tasks.o
  .bss.uxCurrentNumberOfTasks
-                0x0080229f        0x1 src/FreeRTOS/tasks.o
+                0x008022cf        0x1 src/FreeRTOS/tasks.o
  .bss.xPendingReadyList
-                0x008022a0        0x9 src/FreeRTOS/tasks.o
+                0x008022d0        0x9 src/FreeRTOS/tasks.o
  .bss.pxOverflowDelayedTaskList
-                0x008022a9        0x2 src/FreeRTOS/tasks.o
+                0x008022d9        0x2 src/FreeRTOS/tasks.o
  .bss.pxDelayedTaskList
-                0x008022ab        0x2 src/FreeRTOS/tasks.o
+                0x008022db        0x2 src/FreeRTOS/tasks.o
  .bss.xDelayedTaskList2
-                0x008022ad        0x9 src/FreeRTOS/tasks.o
+                0x008022dd        0x9 src/FreeRTOS/tasks.o
  .bss.xDelayedTaskList1
-                0x008022b6        0x9 src/FreeRTOS/tasks.o
+                0x008022e6        0x9 src/FreeRTOS/tasks.o
  .bss.pxReadyTasksLists
-                0x008022bf       0x2d src/FreeRTOS/tasks.o
+                0x008022ef       0x2d src/FreeRTOS/tasks.o
  .bss.pxCurrentTCB
-                0x008022ec        0x2 src/FreeRTOS/tasks.o
-                0x008022ec                pxCurrentTCB
+                0x0080231c        0x2 src/FreeRTOS/tasks.o
+                0x0080231c                pxCurrentTCB
  .bss.xLastTime.4450
-                0x008022ee        0x2 src/FreeRTOS/timers.o
+                0x0080231e        0x2 src/FreeRTOS/timers.o
  .bss.xTimerQueue
-                0x008022f0        0x2 src/FreeRTOS/timers.o
+                0x00802320        0x2 src/FreeRTOS/timers.o
  .bss.pxOverflowTimerList
-                0x008022f2        0x2 src/FreeRTOS/timers.o
+                0x00802322        0x2 src/FreeRTOS/timers.o
  .bss.pxCurrentTimerList
-                0x008022f4        0x2 src/FreeRTOS/timers.o
+                0x00802324        0x2 src/FreeRTOS/timers.o
  .bss.xActiveTimerList2
-                0x008022f6        0x9 src/FreeRTOS/timers.o
+                0x00802326        0x9 src/FreeRTOS/timers.o
  .bss.xActiveTimerList1
-                0x008022ff        0x9 src/FreeRTOS/timers.o
- .bss.counter   0x00802308        0x2 src/main.o
-                0x00802308                counter
+                0x0080232f        0x9 src/FreeRTOS/timers.o
+ .bss.counter   0x00802338        0x2 src/main.o
+                0x00802338                counter
  .bss.alarm_active
-                0x0080230a        0x1 src/main.o
-                0x0080230a                alarm_active
+                0x0080233a        0x1 src/main.o
+                0x0080233a                alarm_active
  .bss.door_open
-                0x0080230b        0x1 src/main.o
-                0x0080230b                door_open
+                0x0080233b        0x1 src/main.o
+                0x0080233b                door_open
  .bss.system_active
-                0x0080230c        0x1 src/main.o
-                0x0080230c                system_active
- .bss.strbuf    0x0080230d       0x80 src/main.o
+                0x0080233c        0x1 src/main.o
+                0x0080233c                system_active
+ .bss.strbuf    0x0080233d       0x80 src/main.o
  *(COMMON)
- COMMON         0x0080238d        0x4 src/main.o
-                0x0080238d                xSemaphoreDoor
-                0x0080238f                xMutexSystemActive
- COMMON         0x00802391        0x4 c:/program files (x86)/atmel/studio/7.0/toolchain/avr8/avr8-gnu-toolchain/bin/../lib/gcc/avr/5.4.0/../../../../avr/lib/avrxmega6\libc.a(malloc.o)
-                0x00802391                __brkval
-                0x00802393                __flp
-                0x00802395                PROVIDE (__bss_end, .)
+ COMMON         0x008023bd        0x4 src/main.o
+                0x008023bd                xSemaphoreDoor
+                0x008023bf                xMutexSystemActive
+ COMMON         0x008023c1        0x4 c:/program files (x86)/atmel/studio/7.0/toolchain/avr8/avr8-gnu-toolchain/bin/../lib/gcc/avr/5.4.0/../../../../avr/lib/avrxmega6\libc.a(malloc.o)
+                0x008023c1                __brkval
+                0x008023c3                __flp
+                0x008023c5                PROVIDE (__bss_end, .)
                 0x000037c2                __data_load_start = LOADADDR (.data)
-                0x00003856                __data_load_end = (__data_load_start + SIZEOF (.data))
+                0x00003886                __data_load_end = (__data_load_start + SIZEOF (.data))
 
-.noinit         0x00802395        0x0
+.noinit         0x008023c5        0x0
                 [!provide]                PROVIDE (__noinit_start, .)
  *(.noinit*)
                 [!provide]                PROVIDE (__noinit_end, .)
-                0x00802395                _end = .
-                0x00802395                PROVIDE (__heap_start, .)
+                0x008023c5                _end = .
+                0x008023c5                PROVIDE (__heap_start, .)
 
 .eeprom         0x00810000        0x0
  *(.eeprom*)

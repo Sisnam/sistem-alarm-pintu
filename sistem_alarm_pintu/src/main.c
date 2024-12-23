@@ -92,7 +92,7 @@ static portTASK_FUNCTION(vPushButton, pvParameters) {
 		if (!(PORTF.IN & PIN1_bm)) {  // SW1 toggle system state
 			if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(100)) == pdTRUE) {
 				system_active = !system_active;
-				gfx_mono_draw_string(system_active ? "Sistem Aktif" : "Sistem Nonaktif", 0, 8, &sysfont);
+				gfx_mono_draw_string(system_active ? "Sistem Aktif    " : "Sistem Nonaktif", 0, 8, &sysfont);
 				if (!system_active) {
 					reset_actuators();
 					alarm_active = false;
@@ -130,7 +130,7 @@ static portTASK_FUNCTION(vCheckDoor, pvParameters) {
 			prev_door_open = is_open;
 			door_open = is_open;
 
-			snprintf(strbuf, sizeof(strbuf), "Pintu: %s", door_open ? "Terbuka" : "Tertutup");
+			snprintf(strbuf, sizeof(strbuf), "Pintu: %s", door_open ? "Terbuka  " : "Tertutup ");
 			gfx_mono_draw_string(strbuf, 0, 16, &sysfont);
 
 			xSemaphoreGive(xSemaphoreDoor); // Notify door state change
@@ -143,7 +143,7 @@ static portTASK_FUNCTION(vCheckDoor, pvParameters) {
 /* Task: Alarm Control                                                  */
 /************************************************************************/
 static portTASK_FUNCTION(vAlarmControl, pvParameters) {
-	gfx_mono_draw_string("Waktu: 0", 0, 24, &sysfont);
+	gfx_mono_draw_string("Waktu: 0            ", 0, 24, &sysfont);
 	PWM_Init();
 
 	while (1) {
@@ -169,11 +169,11 @@ static portTASK_FUNCTION(vAlarmControl, pvParameters) {
 				LED_Toggle(LED1);
 			}
 			counter++;
-			snprintf(strbuf, sizeof(strbuf), "Waktu: %02d", counter);
+			snprintf(strbuf, sizeof(strbuf), "Waktu: %02d           ", counter);
 			gfx_mono_draw_string(strbuf, 0, 24, &sysfont);
 			} else {
 			reset_actuators();
-			gfx_mono_draw_string("Waktu: 0", 0, 24, &sysfont);
+			gfx_mono_draw_string("Waktu: 0          ", 0, 24, &sysfont);
 		}
 
 		vTaskDelay(pdMS_TO_TICKS(100));
