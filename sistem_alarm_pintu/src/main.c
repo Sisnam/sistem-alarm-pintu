@@ -126,15 +126,17 @@ static portTASK_FUNCTION(vCheckDoor, pvParameters) {
 	while (1) {
 		bool is_open = PORTE.IN & PIN0_bm;
 
-		if (is_open != prev_door_open) {
-			prev_door_open = is_open;
-			door_open = is_open;
+		//if (xSemaphoreTake(xSemaphoreDoor, pdMS_TO_TICKS(100)) == pdTRUE) {
+			if (is_open != prev_door_open) {
+				prev_door_open = is_open;
+				door_open = is_open;
 
-			snprintf(strbuf, sizeof(strbuf), "Pintu: %s", door_open ? "Terbuka  " : "Tertutup ");
-			gfx_mono_draw_string(strbuf, 0, 16, &sysfont);
+				snprintf(strbuf, sizeof(strbuf), "Pintu: %s", door_open ? "Terbuka  " : "Tertutup ");
+				gfx_mono_draw_string(strbuf, 0, 16, &sysfont);
 
-			xSemaphoreGive(xSemaphoreDoor); // Notify door state change
-		}
+				xSemaphoreGive(xSemaphoreDoor); // Notify door state change
+			}
+		//}
 		vTaskDelay(pdMS_TO_TICKS(100));
 	}
 }
@@ -149,13 +151,17 @@ static portTASK_FUNCTION(vAlarmControl, pvParameters) {
 	while (1) {
 		if (xSemaphoreTake(xSemaphoreDoor, pdMS_TO_TICKS(100)) == pdTRUE) {
 			if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(100)) == pdTRUE) {
+				gfx_mono_draw_string("MASUK COY       ", 0, 0, &sysfont);
 				if (system_active && door_open) {
+					gfx_mono_draw_string("HARUSNYA NYALA COY", 0, 0, &sysfont);
 					alarm_active = true;
 					} else {
+					gfx_mono_draw_string("HARUSNYA MATI COY", 0, 0, &sysfont);
 					alarm_active = false;
 				}
 				xSemaphoreGive(xMutexSystemActive);
 			}
+			xSemaphoreGive(xSemaphoreDoor);
 		}
 
 		if (alarm_active) {
