@@ -154,7 +154,7 @@ static portTASK_FUNCTION(vAlarmControl, pvParameters) {
 	PWM_Init();
 
 	while (1) {
-		if (xSemaphoreTake(xSemaphoreDoor, pdMS_TO_TICKS(250)) == pdTRUE) {
+		if (xSemaphoreTake(xSemaphoreDoor, portMAX_DELAY) == pdTRUE) {
 			if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(250)) == pdTRUE) {
 				gfx_mono_draw_string("MASUK COY       ", 0, 0, &sysfont);
 				if (system_active && door_open) {
