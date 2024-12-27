@@ -1,7 +1,7 @@
 import serial
 
 ser = serial.Serial(
-    port='COM3',    # Ganti dengan port yang benar
+    port='COM6',    # Ganti dengan port yang benar
     baudrate=9600,
     parity=serial.PARITY_NONE,
     stopbits=serial.STOPBITS_ONE,

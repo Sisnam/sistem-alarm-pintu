@@ -7,22 +7,29 @@
 #include "FreeRTOS/include/timers.h"
 #include "FreeRTOS/include/semphr.h"
 
+/* USART Arduino */
 #define USART_SERIAL_EXAMPLE &USARTC0
 #define USART_SERIAL_EXAMPLE_BAUDRATE 9600
 #define USART_SERIAL_CHAR_LENGTH USART_CHSIZE_8BIT_gc
 #define USART_SERIAL_PARITY USART_PMODE_DISABLED_gc
 #define USART_SERIAL_STOP_BIT false
+#define BUFFER_SIZE 10
 
 /* Task Definitions */
 static portTASK_FUNCTION_PROTO(vCheckDoor, pvParameters);
 static portTASK_FUNCTION_PROTO(vAlarmControl, pvParameters);
 static portTASK_FUNCTION_PROTO(vPushButton, pvParameters);
+static portTASK_FUNCTION_PROTO(vAccessStatus, pvParameters);
+static portTASK_FUNCTION_PROTO(vAccessStatusControl, pvParameters);
 
 /* Function Prototype */
 void setUpSerial(void);
 void PWM_Init(void);
 void reset_actuators(void);
 void reset_lcd(void);
+char receiveChar(void);
+int receiveString(char *, int);
+void sendChar(char);
 
 /* Global Variables */
 static char strbuf[128];
@@ -37,6 +44,7 @@ SemaphoreHandle_t xMutexSystemDeactive;
 
 /* Door queue */
 QueueHandle_t xQueueSemaphoreDoor;
+QueueHandle_t xQueueAccessStatus;
 
 // Structure for our data
 typedef struct
@@ -44,8 +52,13 @@ typedef struct
 	bool door_status;
 } DataPacket_t;
 
+typedef struct
+{
+	char buffer[BUFFER_SIZE];
+} DataPacketStatusAccess_t;
+
 /************************************************************************/
-/* UART Configuration                                                   */
+/* UART Configuration for Arduino                                        */
 /************************************************************************/
 void setUpSerial()
 {
@@ -58,6 +71,51 @@ void setUpSerial()
 	USARTC0_CTRLC = USART_CHSIZE_8BIT_gc;
 	// Enable receive and transmit
 	USARTC0_CTRLB = USART_TXEN_bm | USART_RXEN_bm;
+}
+
+/* Send char to Arduino */
+void sendChar(char c)
+{
+	while (!(USARTC0_STATUS & USART_DREIF_bm))
+		; // Wait until DATA buffer is empty
+	delay_ms(10);
+	USARTC0_DATA = c;
+}
+
+/* Receive char from Arduino */
+char receiveChar()
+{
+	while (!(USARTC0_STATUS & USART_RXCIF_bm))
+		; // Wait until receive finish
+
+	return USARTC0_DATA;
+}
+
+int receiveString(char *buffer, int size)
+{
+	char c;
+	int index = 0;
+
+	for (int i = 0; i < size; i++)
+	{
+		buffer[i] = '\0';
+	}
+
+	while (index < size - 1)
+	{ // Leave space for null terminator
+		c = receiveChar();
+
+		// Check for newline or carriage return
+		if (c == '\n' || c == '\r')
+		{
+			break;
+		}
+
+		buffer[index++] = c;
+	}
+
+	buffer[index] = '\0'; // Null terminate
+	return index;		  // Return the number of characters read
 }
 
 /************************************************************************/
@@ -279,6 +337,87 @@ static portTASK_FUNCTION(vAlarmControl, pvParameters)
 }
 
 /************************************************************************/
+/* Receive RFID Access Status                                           */
+/************************************************************************/
+static portTASK_FUNCTION(vAccessStatus, pvParameters)
+{
+	PORTC_OUTSET = PIN3_bm; // PC3 as TX
+	PORTC_DIRSET = PIN3_bm; // TX pin as output
+
+	PORTC_OUTCLR = PIN2_bm; // PC2 as RX
+	PORTC_DIRCLR = PIN2_bm; // RX pin as input
+
+	setUpSerial();
+
+	static usart_rs232_options_t USART_SERIAL_OPTIONS = {
+		.baudrate = USART_SERIAL_EXAMPLE_BAUDRATE,
+		.charlength = USART_SERIAL_CHAR_LENGTH,
+		.paritytype = USART_SERIAL_PARITY,
+		.stopbits = USART_SERIAL_STOP_BIT};
+
+	usart_init_rs232(USART_SERIAL_EXAMPLE, &USART_SERIAL_OPTIONS);
+
+	// Store received access status
+	char buffer[BUFFER_SIZE];
+
+	DataPacketStatusAccess_t dataPacket;
+
+	while (1)
+	{
+		receiveString(buffer, BUFFER_SIZE);
+
+		if (strcmp(buffer, "TRUE") == 0 || strcmp(buffer, "FALSE") == 0)
+		{
+			// Send access status
+			strcpy(dataPacket.buffer, buffer);
+
+			if (xQueueSend(xQueueAccessStatus, &dataPacket, pdMS_TO_TICKS(100)) == pdPASS)
+			{
+				printf("Sent: Access Status");
+			}
+		}
+
+		vTaskDelay(pdMS_TO_TICKS(100));
+	}
+}
+
+/************************************************************************/
+/* Control Access Status                                                */
+/************************************************************************/
+static portTASK_FUNCTION(vAccessStatusControl, pvParameters)
+{
+	DataPacketStatusAccess_t receivedPacket;
+
+	while (1)
+	{
+		if (xQueueReceive(xQueueAccessStatus, &receivedPacket, pdMS_TO_TICKS(100)) == pdPASS)
+		{
+			if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(250)) == pdTRUE) {
+				if (system_active)
+				{
+					if (strcmp(receivedPacket.buffer, "TRUE") == 0)
+					{
+						gfx_mono_draw_string("Akses: Diberikan ", 0, 24, &sysfont);
+						
+						// TODO: add process
+					}
+					else if (strcmp(receivedPacket.buffer, "FALSE") == 0)
+					{
+						gfx_mono_draw_string("Akses: Ditolak   ", 0, 24, &sysfont);
+						
+						// TODO: add process
+					}
+				}
+				
+				xSemaphoreGive(xMutexSystemActive);
+			}	
+		}
+
+		vTaskDelay(pdMS_TO_TICKS(100));
+	}
+}
+
+/************************************************************************/
 /* Main Function                                                        */
 /************************************************************************/
 int main(void)
@@ -296,11 +435,14 @@ int main(void)
 
 	// Initialize Queue
 	xQueueSemaphoreDoor = xQueueCreate(10, sizeof(DataPacket_t));
+	xQueueAccessStatus = xQueueCreate(10, sizeof(DataPacketStatusAccess_t));
 
 	// Create Tasks
 	xTaskCreate(vPushButton, "PushButton", 1000, NULL, tskIDLE_PRIORITY + 3, NULL);
 	xTaskCreate(vCheckDoor, "CheckDoor", 1000, NULL, tskIDLE_PRIORITY + 2, NULL);
 	xTaskCreate(vAlarmControl, "AlarmControl", 1000, NULL, tskIDLE_PRIORITY + 1, NULL);
+	xTaskCreate(vAccessStatus, "Receive Access Status", 1000, NULL, tskIDLE_PRIORITY + 1, NULL);
+	xTaskCreate(vAccessStatusControl, "Control Access Status", 1000, NULL, tskIDLE_PRIORITY + 2, NULL);
 
 	// Start Scheduler
 	vTaskStartScheduler();
