@@ -27,7 +27,8 @@
 #include <SPI.h>
 #include <MFRC522.h>
 #include <Arduino_FreeRTOS.h>
-#include <semphr.h>  // add the FreeRTOS functions for Semaphores (or Flags).
+#include <semphr.h>
+#include <queue.h>
 
 // Pin Definitions for RC522
 #define SS_PIN 53
@@ -43,36 +44,53 @@ const byte authorizedUIDs[][4] = {
 };
 
 const int numOfUIDs = sizeof(authorizedUIDs) / sizeof(authorizedUIDs[0]);
-
-// Queue
 #define UID_LENGTH 4
 
+// Queue
 QueueHandle_t xQueueAccessGranted;
+QueueHandle_t xQueueSystemStatus;
 
+// Structure for RFID access status
 typedef struct
 {
   bool accessGranted;
   byte detectedUID[UID_LENGTH];
 } DataPacket_t;
 
+// Structure for system status
+typedef struct {
+  bool doorStatus;     // true = open, false = closed
+  bool alarmStatus;    // true = active, false = inactive
+  bool systemStatus;   // true = armed, false = disarmed
+} SystemStatus_t;
+
+// Global variable to track system state
+bool currentSystemState = false;
 
 // Function prototypes
 void TaskReadRFID(void *pvParameters);
-void TaskHandleData(void *pvParameters);
+void TaskReceiveAtmelStatus(void *pvParameters);
+void TaskHandleRFIDControl(void *pvParameters);
+void TaskUpdateSerial(void *pvParameters);
+
 
 void setup() {
-  Serial.begin(9600);   // UART ke ATMega
-  Serial1.begin(9600);  // UART ke Dashboard
+  Serial.begin(9600);   // Debug Serial
+  Serial1.begin(9600);  // Communication with Atmel
   SPI.begin();
   mfrc522.PCD_Init();
 
-  Serial.println("RFID Reader Ready...");
+  Serial.println("Dashboard Ready...");
 
+  // Create queues
   xQueueAccessGranted = xQueueCreate(10, sizeof(DataPacket_t));
+  xQueueSystemStatus = xQueueCreate(10, sizeof(SystemStatus_t));
 
   // Create FreeRTOS tasks
   xTaskCreate(TaskReadRFID, "ReadRFID", 256, NULL, 1, NULL);
-  xTaskCreate(TaskHandleData, "HandleData", 256, NULL, 1, NULL);
+  xTaskCreate(TaskReceiveAtmelStatus, "ReceiveStatus", 256, NULL, 1, NULL);
+  xTaskCreate(TaskHandleRFIDControl, "HandleRFID", 128, NULL, 1, NULL);
+  xTaskCreate(TaskUpdateSerial, "UpdateSerial", 256, NULL, 1, NULL);
 }
 
 void loop() {
@@ -105,22 +123,86 @@ void TaskReadRFID(void *pvParameters) {
   }
 }
 
-// Task untuk menangani data dan mengirim log
-void TaskHandleData(void *pvParameters) {
+// Task to handle RFID access and system control
+void TaskHandleRFIDControl(void *pvParameters) {
   DataPacket_t receivedPacket;
-
+  
   for (;;) {
     if (xQueueReceive(xQueueAccessGranted, &receivedPacket, pdMS_TO_TICKS(100)) == pdPASS) {
-      // Kirim log ke dashboard melalui Serial
-      String UID = convertUIDToString(receivedPacket.detectedUID);
-      String accessGranted = receivedPacket.accessGranted ? "TRUE" : "FALSE";
-      sendLogToDashboard(UID, accessGranted);
-
-      // Kirim status ke ATmega melalui Serial1 (TRUE/FALSE saja)
-      sendToAtmega(receivedPacket.accessGranted);
+      if (receivedPacket.accessGranted) {
+        // Toggle system state
+        currentSystemState = !currentSystemState;
+        
+        // Send new state to Atmel
+        Serial1.print("SYSTEM|");
+        Serial1.println(currentSystemState ? "1" : "0");
+        
+        Serial.print("System state changed to: ");
+        Serial.println(currentSystemState ? "ARMED" : "DISARMED");
+      } else {
+        Serial.println("Unauthorized card detected!");
+      }
     }
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+}
 
-    vTaskDelay(50 / portTICK_PERIOD_MS);  // Delay untuk menjaga task tetap berjalan
+// Task to receive status updates from Atmel
+void TaskReceiveAtmelStatus(void *pvParameters) {
+  SystemStatus_t status;
+  String receivedString;
+
+  for (;;) {
+    if (Serial1.available() > 0) {
+      receivedString = Serial1.readStringUntil('\n');
+      
+      // Expected format: "STATUS|door|alarm|system"
+      // Example: "STATUS|1|0|1"
+      if (receivedString.startsWith("STATUS|")) {
+        String parts[4];
+        int partIndex = 0;
+        int lastIndex = 7;  // Length of "STATUS|"
+        
+        // Parse the status string
+        for (int i = lastIndex; i < receivedString.length() && partIndex < 3; i++) {
+          if (receivedString.charAt(i) == '|') {
+            parts[partIndex] = receivedString.substring(lastIndex, i);
+            lastIndex = i + 1;
+            partIndex++;
+          }
+        }
+        // Get the last part
+        parts[partIndex] = receivedString.substring(lastIndex);
+        
+        // Update status structure
+        status.doorStatus = (parts[0] == "1");
+        status.alarmStatus = (parts[1] == "1");
+        status.systemStatus = (parts[2] == "1");
+        
+        // Send to queue
+        xQueueSend(xQueueSystemStatus, &status, pdMS_TO_TICKS(100));
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+}
+
+// Task to update serial monitor with current status
+void TaskUpdateSerial(void *pvParameters) {
+  SystemStatus_t status;
+  
+  for (;;) {
+    if (xQueueReceive(xQueueSystemStatus, &status, pdMS_TO_TICKS(100)) == pdPASS) {
+      Serial.println("\n--- System Status ---");
+      Serial.print("Door: ");
+      Serial.println(status.doorStatus ? "TERBUKA" : "TERTUTUP");
+      Serial.print("Alarm: ");
+      Serial.println(status.alarmStatus ? "AKTIF" : "NONAKTIF");
+      Serial.print("System: ");
+      Serial.println(status.systemStatus ? "AKTIF" : "NONAKTIF");
+      Serial.println("------------------\n");
+    }
+    vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }
 
@@ -137,33 +219,4 @@ bool checkAccess(byte uid[]) {
     if (match) return true;  // UID cocok
   }
   return false;  // UID tidak cocok
-}
-
-String convertUIDToString(byte uid[]) {
-  // Format UID menjadi string tanpa separator
-  String uidString = "";
-
-  for (byte i = 0; i < UID_LENGTH; i++) {
-    if (uid[i] < 0x10) {
-      uidString += "0";  // Tambahkan leading zero jika perlu
-    }
-    uidString += String(uid[i], HEX);
-  }
-
-  return uidString;
-}
-
-// Fungsi untuk mengirim log akses ke Dashboard melalui Serial1
-void sendLogToDashboard(String uid, String status) {
-  String log = "UID: " + uid + " | ACCESS: " + status;
-  Serial.println(log);  // Kirim log ke Dashboard
-}
-
-// Fungsi untuk mengirim data ke ATmega melalui Serial1 (TRUE/FALSE saja)
-void sendToAtmega(bool accessGranted) {
-  if (accessGranted) {
-    Serial1.println("TRUE");
-  } else {
-    Serial1.println("FALSE");
-  }
 }
