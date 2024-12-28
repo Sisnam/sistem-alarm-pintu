@@ -36,11 +36,13 @@ static char strbuf[128];
 bool system_active = false;	  // Removed volatile as semaphores handle synchronization
 bool alarm_active = false;	  // Removed volatile for the same reason
 bool system_deactive = false; // Trigger resend door status to queue
+bool access_granted = false;
 int counter = 0;
 
 /* Semaphore and Mutex */
 SemaphoreHandle_t xMutexSystemActive;
 SemaphoreHandle_t xMutexSystemDeactive;
+SemaphoreHandle_t xMutexAccessControl;
 
 /* Door queue */
 QueueHandle_t xQueueSemaphoreDoor;
@@ -136,6 +138,8 @@ void PWM_Init(void)
 	/* Set Compare Register value*/
 	TCC0.CCA = 0;
 }
+
+
 
 /************************************************************************/
 /* Resets all actuators (buzzer & LED) and counter                      */
@@ -247,24 +251,35 @@ static portTASK_FUNCTION(vCheckDoor, pvParameters)
 
 		if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(250)) == pdTRUE)
 		{
-			if (xSemaphoreTake(xMutexSystemDeactive, pdMS_TO_TICKS(250)) == pdTRUE)
-			{
-				if (system_active && (door_status != prev_door_status || system_deactive))
+			if (system_active) {
+				if (xSemaphoreTake(xMutexSystemDeactive, pdMS_TO_TICKS(250)) == pdTRUE)
 				{
-					prev_door_status = door_status;
-					system_deactive = false;
-
-					snprintf(strbuf, sizeof(strbuf), "Pintu: %s", door_status ? "Terbuka  " : "Tertutup ");
-					gfx_mono_draw_string(strbuf, 0, 16, &sysfont);
-
-					// Send door status to queue
-					dataPacket.door_status = door_status;
-					if (xQueueSend(xQueueSemaphoreDoor, &dataPacket, pdMS_TO_TICKS(100)) == pdPASS)
+					if (door_status != prev_door_status || system_deactive)
 					{
-						printf("Sent: Door status=%d\n", dataPacket.door_status);
+						// Reset access granted
+						if (prev_door_status && !door_status && xSemaphoreTake(xMutexAccessControl, pdMS_TO_TICKS(250)) == pdTRUE)
+						{
+							access_granted = false;
+							gfx_mono_draw_string("Waktu: -            ", 0, 24, &sysfont);
+							
+							xSemaphoreGive(xMutexAccessControl);
+						}
+												
+						prev_door_status = door_status;
+						system_deactive = false;
+
+						snprintf(strbuf, sizeof(strbuf), "Pintu: %s", door_status ? "Terbuka  " : "Tertutup ");
+						gfx_mono_draw_string(strbuf, 0, 16, &sysfont);
+
+						// Send door status to queue
+						dataPacket.door_status = door_status;
+						if (xQueueSend(xQueueSemaphoreDoor, &dataPacket, pdMS_TO_TICKS(100)) == pdPASS)
+						{
+							printf("Sent: Door status=%d\n", dataPacket.door_status);
+						}
 					}
-				}
-				xSemaphoreGive(xMutexSystemDeactive);
+					xSemaphoreGive(xMutexSystemDeactive);
+				}	
 			}
 
 			xSemaphoreGive(xMutexSystemActive);
@@ -290,43 +305,53 @@ static portTASK_FUNCTION(vAlarmControl, pvParameters)
 		{
 			if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(250)) == pdTRUE)
 			{
-				if (system_active && receivedPacket.door_status)
-				{
-					gfx_mono_draw_string("Alarm: Aktif   ", 0, 0, &sysfont);
-					alarm_active = true;
+				if (xSemaphoreTake(xMutexAccessControl, pdMS_TO_TICKS(250)) == pdTRUE) {
+					if (system_active && receivedPacket.door_status && !access_granted)
+					{
+						gfx_mono_draw_string("Alarm: Aktif   ", 0, 0, &sysfont);
+						alarm_active = true;
+					}
+					else if (alarm_active)
+					{
+						gfx_mono_draw_string("Alarm: Aktif   ", 0, 0, &sysfont);
+					}
+					else
+					{
+						gfx_mono_draw_string("Alarm: Nonaktif", 0, 0, &sysfont);
+						alarm_active = false;
+					}
+										
+					xSemaphoreGive(xMutexAccessControl);
 				}
-				else if (alarm_active)
-				{
-					gfx_mono_draw_string("Alarm: Aktif   ", 0, 0, &sysfont);
-				}
-				else
-				{
-					gfx_mono_draw_string("Alarm: Nonaktif", 0, 0, &sysfont);
-					alarm_active = false;
-				}
+				
 				xSemaphoreGive(xMutexSystemActive);
 			}
 		}
 
 		if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(250)) == pdTRUE)
 		{
-			if (alarm_active)
+			if (xSemaphoreTake(xMutexAccessControl, pdMS_TO_TICKS(250)) == pdTRUE)
 			{
-				if (counter < 10)
+				if (alarm_active && !access_granted)
 				{
-					TCC0.CCA = 500; // Low buzzer frequency
-					LED_On(LED0);
-					LED_On(LED1);
+					if (counter < 10)
+					{
+						TCC0.CCA = 500; // Low buzzer frequency
+						LED_On(LED0);
+						LED_On(LED1);
+					}
+					else
+					{
+						TCC0.CCA = 800; // High buzzer frequency
+						LED_Toggle(LED0);
+						LED_Toggle(LED1);
+					}
+					counter++;
+					snprintf(strbuf, sizeof(strbuf), "Waktu: %02d           ", counter);
+					gfx_mono_draw_string(strbuf, 0, 24, &sysfont);
 				}
-				else
-				{
-					TCC0.CCA = 800; // High buzzer frequency
-					LED_Toggle(LED0);
-					LED_Toggle(LED1);
-				}
-				counter++;
-				snprintf(strbuf, sizeof(strbuf), "Waktu: %02d           ", counter);
-				gfx_mono_draw_string(strbuf, 0, 24, &sysfont);
+				
+				xSemaphoreGive(xMutexAccessControl);	
 			}
 
 			xSemaphoreGive(xMutexSystemActive);
@@ -399,13 +424,19 @@ static portTASK_FUNCTION(vAccessStatusControl, pvParameters)
 					{
 						gfx_mono_draw_string("Akses: Diberikan ", 0, 24, &sysfont);
 						
-						// TODO: add process
+						if (xSemaphoreTake(xMutexAccessControl, pdMS_TO_TICKS(250)) == pdTRUE) {
+							access_granted = true;
+							xSemaphoreGive(xMutexAccessControl);
+						}
 					}
 					else if (strcmp(receivedPacket.buffer, "FALSE") == 0)
 					{
 						gfx_mono_draw_string("Akses: Ditolak   ", 0, 24, &sysfont);
 						
-						// TODO: add process
+						if (xSemaphoreTake(xMutexAccessControl, pdMS_TO_TICKS(250)) == pdTRUE) {
+							access_granted = false;
+							xSemaphoreGive(xMutexAccessControl);
+						}
 					}
 				}
 				
@@ -432,6 +463,8 @@ int main(void)
 
 	// Initialize Semaphores
 	xMutexSystemActive = xSemaphoreCreateMutex();
+	xMutexSystemDeactive = xSemaphoreCreateMutex();
+	xMutexAccessControl = xSemaphoreCreateMutex();
 
 	// Initialize Queue
 	xQueueSemaphoreDoor = xQueueCreate(10, sizeof(DataPacket_t));
