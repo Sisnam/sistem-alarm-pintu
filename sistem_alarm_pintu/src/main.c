@@ -19,7 +19,7 @@
 static portTASK_FUNCTION_PROTO(vCheckDoor, pvParameters);
 static portTASK_FUNCTION_PROTO(vAlarmControl, pvParameters);
 static portTASK_FUNCTION_PROTO(vPushButton, pvParameters);
-static portTASK_FUNCTION_PROTO(vAccessStatus, pvParameters);
+static portTASK_FUNCTION_PROTO(vListenUART, pvParameters);
 static portTASK_FUNCTION_PROTO(vAccessStatusControl, pvParameters);
 
 /* Function Prototype */
@@ -139,8 +139,6 @@ void PWM_Init(void)
 	TCC0.CCA = 0;
 }
 
-
-
 /************************************************************************/
 /* Resets all actuators (buzzer & LED) and counter                      */
 /************************************************************************/
@@ -251,20 +249,24 @@ static portTASK_FUNCTION(vCheckDoor, pvParameters)
 
 		if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(250)) == pdTRUE)
 		{
-			if (system_active) {
+			if (system_active)
+			{
 				if (xSemaphoreTake(xMutexSystemDeactive, pdMS_TO_TICKS(250)) == pdTRUE)
 				{
 					if (door_status != prev_door_status || system_deactive)
 					{
 						// Reset access granted
-						if (prev_door_status && !door_status && xSemaphoreTake(xMutexAccessControl, pdMS_TO_TICKS(250)) == pdTRUE)
+						if (xSemaphoreTake(xMutexAccessControl, pdMS_TO_TICKS(250)) == pdTRUE)
 						{
-							access_granted = false;
-							gfx_mono_draw_string("Waktu: -            ", 0, 24, &sysfont);
-							
+							if (access_granted && prev_door_status && !door_status)
+							{
+								access_granted = false;
+								gfx_mono_draw_string("Waktu: -            ", 0, 24, &sysfont);
+							}
+
 							xSemaphoreGive(xMutexAccessControl);
 						}
-												
+
 						prev_door_status = door_status;
 						system_deactive = false;
 
@@ -279,7 +281,7 @@ static portTASK_FUNCTION(vCheckDoor, pvParameters)
 						}
 					}
 					xSemaphoreGive(xMutexSystemDeactive);
-				}	
+				}
 			}
 
 			xSemaphoreGive(xMutexSystemActive);
@@ -305,7 +307,8 @@ static portTASK_FUNCTION(vAlarmControl, pvParameters)
 		{
 			if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(250)) == pdTRUE)
 			{
-				if (xSemaphoreTake(xMutexAccessControl, pdMS_TO_TICKS(250)) == pdTRUE) {
+				if (xSemaphoreTake(xMutexAccessControl, pdMS_TO_TICKS(250)) == pdTRUE)
+				{
 					if (system_active && receivedPacket.door_status && !access_granted)
 					{
 						gfx_mono_draw_string("Alarm: Aktif   ", 0, 0, &sysfont);
@@ -320,10 +323,10 @@ static portTASK_FUNCTION(vAlarmControl, pvParameters)
 						gfx_mono_draw_string("Alarm: Nonaktif", 0, 0, &sysfont);
 						alarm_active = false;
 					}
-										
+
 					xSemaphoreGive(xMutexAccessControl);
 				}
-				
+
 				xSemaphoreGive(xMutexSystemActive);
 			}
 		}
@@ -350,8 +353,8 @@ static portTASK_FUNCTION(vAlarmControl, pvParameters)
 					snprintf(strbuf, sizeof(strbuf), "Waktu: %02d           ", counter);
 					gfx_mono_draw_string(strbuf, 0, 24, &sysfont);
 				}
-				
-				xSemaphoreGive(xMutexAccessControl);	
+
+				xSemaphoreGive(xMutexAccessControl);
 			}
 
 			xSemaphoreGive(xMutexSystemActive);
@@ -364,7 +367,7 @@ static portTASK_FUNCTION(vAlarmControl, pvParameters)
 /************************************************************************/
 /* Receive RFID Access Status                                           */
 /************************************************************************/
-static portTASK_FUNCTION(vAccessStatus, pvParameters)
+static portTASK_FUNCTION(vListenUART, pvParameters)
 {
 	PORTC_OUTSET = PIN3_bm; // PC3 as TX
 	PORTC_DIRSET = PIN3_bm; // TX pin as output
@@ -417,14 +420,16 @@ static portTASK_FUNCTION(vAccessStatusControl, pvParameters)
 	{
 		if (xQueueReceive(xQueueAccessStatus, &receivedPacket, pdMS_TO_TICKS(100)) == pdPASS)
 		{
-			if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(250)) == pdTRUE) {
+			if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(250)) == pdTRUE)
+			{
 				if (system_active)
 				{
 					if (strcmp(receivedPacket.buffer, "TRUE") == 0)
 					{
 						gfx_mono_draw_string("Akses: Diberikan ", 0, 24, &sysfont);
-						
-						if (xSemaphoreTake(xMutexAccessControl, pdMS_TO_TICKS(250)) == pdTRUE) {
+
+						if (xSemaphoreTake(xMutexAccessControl, pdMS_TO_TICKS(250)) == pdTRUE)
+						{
 							access_granted = true;
 							xSemaphoreGive(xMutexAccessControl);
 						}
@@ -432,16 +437,21 @@ static portTASK_FUNCTION(vAccessStatusControl, pvParameters)
 					else if (strcmp(receivedPacket.buffer, "FALSE") == 0)
 					{
 						gfx_mono_draw_string("Akses: Ditolak   ", 0, 24, &sysfont);
-						
-						if (xSemaphoreTake(xMutexAccessControl, pdMS_TO_TICKS(250)) == pdTRUE) {
+
+						if (xSemaphoreTake(xMutexAccessControl, pdMS_TO_TICKS(250)) == pdTRUE)
+						{
 							access_granted = false;
 							xSemaphoreGive(xMutexAccessControl);
+
+							delay_ms(200);
+
+							gfx_mono_draw_string("Waktu: -            ", 0, 24, &sysfont);
 						}
 					}
 				}
-				
+
 				xSemaphoreGive(xMutexSystemActive);
-			}	
+			}
 		}
 
 		vTaskDelay(pdMS_TO_TICKS(100));
@@ -474,7 +484,7 @@ int main(void)
 	xTaskCreate(vPushButton, "PushButton", 1000, NULL, tskIDLE_PRIORITY + 3, NULL);
 	xTaskCreate(vCheckDoor, "CheckDoor", 1000, NULL, tskIDLE_PRIORITY + 2, NULL);
 	xTaskCreate(vAlarmControl, "AlarmControl", 1000, NULL, tskIDLE_PRIORITY + 1, NULL);
-	xTaskCreate(vAccessStatus, "Receive Access Status", 1000, NULL, tskIDLE_PRIORITY + 1, NULL);
+	xTaskCreate(vListenUART, "Receive Access Status", 1000, NULL, tskIDLE_PRIORITY + 1, NULL);
 	xTaskCreate(vAccessStatusControl, "Control Access Status", 1000, NULL, tskIDLE_PRIORITY + 2, NULL);
 
 	// Start Scheduler

@@ -28,6 +28,11 @@
 #include <MFRC522.h>
 #include <Arduino_FreeRTOS.h>
 #include <semphr.h>  // add the FreeRTOS functions for Semaphores (or Flags).
+#include <Servo.h>
+
+// Servo
+Servo myservo;
+#define SERVO_PIN 9
 
 // Pin Definitions for RC522
 #define SS_PIN 53
@@ -68,6 +73,11 @@ void setup() {
 
   Serial.println("RFID Reader Ready...");
 
+  // Initialize Servo
+  myservo.attach(SERVO_PIN);
+  myservo.write(90);  // door close
+
+  // Initialize Queue
   xQueueAccessGranted = xQueueCreate(10, sizeof(DataPacket_t));
 
   // Create FreeRTOS tasks
@@ -115,6 +125,11 @@ void TaskHandleData(void *pvParameters) {
       String UID = convertUIDToString(receivedPacket.detectedUID);
       String accessGranted = receivedPacket.accessGranted ? "TRUE" : "FALSE";
       sendLogToDashboard(UID, accessGranted);
+
+      // Rotasi servo
+      if (receivedPacket.accessGranted) {
+        rotateServo();
+      }
 
       // Kirim status ke ATmega melalui Serial1 (TRUE/FALSE saja)
       sendToAtmega(receivedPacket.accessGranted);
@@ -165,5 +180,20 @@ void sendToAtmega(bool accessGranted) {
     Serial1.println("TRUE");
   } else {
     Serial1.println("FALSE");
+  }
+}
+
+void rotateServo() {
+  int pos;
+  for (pos = 90; pos >= 0; pos -= 1) {
+    myservo.write(pos);
+    delay(5);
+  }
+
+  delay(4000);
+
+  for (pos = 0; pos <= 90; pos += 1) {
+    myservo.write(pos);
+    delay(5);
   }
 }
