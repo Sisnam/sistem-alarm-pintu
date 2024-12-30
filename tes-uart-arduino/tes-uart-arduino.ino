@@ -125,85 +125,83 @@ void TaskReadRFID(void *pvParameters) {
 
 // Task to handle RFID access and system control
 void TaskHandleRFIDControl(void *pvParameters) {
-  DataPacket_t receivedPacket;
-  
-  for (;;) {
-    if (xQueueReceive(xQueueAccessGranted, &receivedPacket, pdMS_TO_TICKS(100)) == pdPASS) {
-      if (receivedPacket.accessGranted) {
-        // Toggle system state
-        currentSystemState = !currentSystemState;
-        
-        // Send new state to Atmel
-        Serial1.print("SYSTEM|");
-        Serial1.println(currentSystemState ? "1" : "0");
-        
-        Serial.print("System state changed to: ");
-        Serial.println(currentSystemState ? "ARMED" : "DISARMED");
-      } else {
-        Serial.println("Unauthorized card detected!");
-      }
+    DataPacket_t receivedPacket;
+    
+    for (;;) {
+        if (xQueueReceive(xQueueAccessGranted, &receivedPacket, pdMS_TO_TICKS(100)) == pdPASS) {
+            if (receivedPacket.accessGranted) {
+                // Toggle system state
+                currentSystemState = !currentSystemState;
+                
+                // Send new state to Atmel using new format "S:1" or "S:0"
+                Serial1.print("S:");
+                Serial1.println(currentSystemState ? "1" : "0");
+                
+                Serial.print("System state change request sent: ");
+                Serial.println(currentSystemState ? "ARMED" : "DISARMED");
+            } else {
+                Serial.println("Unauthorized card detected!");
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
-    vTaskDelay(pdMS_TO_TICKS(100));
-  }
 }
+
 
 // Task to receive status updates from Atmel
 void TaskReceiveAtmelStatus(void *pvParameters) {
-  SystemStatus_t status;
-  String receivedString;
-
-  for (;;) {
-    if (Serial1.available() > 0) {
-      receivedString = Serial1.readStringUntil('\n');
-      
-      // Expected format: "STATUS|door|alarm|system"
-      // Example: "STATUS|1|0|1"
-      if (receivedString.startsWith("STATUS|")) {
-        String parts[4];
-        int partIndex = 0;
-        int lastIndex = 7;  // Length of "STATUS|"
-        
-        // Parse the status string
-        for (int i = lastIndex; i < receivedString.length() && partIndex < 3; i++) {
-          if (receivedString.charAt(i) == '|') {
-            parts[partIndex] = receivedString.substring(lastIndex, i);
-            lastIndex = i + 1;
-            partIndex++;
-          }
+    SystemStatus_t status;
+    String receivedString;
+    
+    for (;;) {
+        if (Serial1.available() > 0) {
+            receivedString = Serial1.readStringUntil('\n');
+            
+            // New format from Atmel: "S:1|A:1|P:1"
+            // S = System status, A = Alarm status, P = Door (Pintu) status
+            if (receivedString.length() > 0) {
+                // Parse system status
+                int sIndex = receivedString.indexOf("S:");
+                int aIndex = receivedString.indexOf("|A:");
+                int pIndex = receivedString.indexOf("|P:");
+                
+                if (sIndex >= 0 && aIndex >= 0 && pIndex >= 0) {
+                    // Extract values
+                    status.systemStatus = (receivedString.charAt(sIndex + 2) == '1');
+                    status.alarmStatus = (receivedString.charAt(aIndex + 3) == '1');
+                    status.doorStatus = (receivedString.charAt(pIndex + 3) == '1');
+                    
+                    // Update current system state
+                    currentSystemState = status.systemStatus;
+                    
+                    // Send to queue for display
+                    if (xQueueSend(xQueueSystemStatus, &status, pdMS_TO_TICKS(100)) == pdPASS) {
+                        Serial.println("Status update received and queued");
+                    }
+                }
+            }
         }
-        // Get the last part
-        parts[partIndex] = receivedString.substring(lastIndex);
-        
-        // Update status structure
-        status.doorStatus = (parts[0] == "1");
-        status.alarmStatus = (parts[1] == "1");
-        status.systemStatus = (parts[2] == "1");
-        
-        // Send to queue
-        xQueueSend(xQueueSystemStatus, &status, pdMS_TO_TICKS(100));
-      }
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
-    vTaskDelay(pdMS_TO_TICKS(100));
-  }
 }
 
 // Task to update serial monitor with current status
 void TaskUpdateSerial(void *pvParameters) {
-  SystemStatus_t status;
-  
-  for (;;) {
-    if (xQueueReceive(xQueueSystemStatus, &status, pdMS_TO_TICKS(100)) == pdPASS) {
-      Serial.println("\n--- System Status ---");
-      Serial.print("Door: ");
-      Serial.println(status.doorStatus ? "TERBUKA" : "TERTUTUP");
-      Serial.print("Alarm: ");
-      Serial.println(status.alarmStatus ? "AKTIF" : "NONAKTIF");
-      Serial.print("System: ");
-      Serial.println(status.systemStatus ? "AKTIF" : "NONAKTIF");
-      Serial.println("------------------\n");
+    SystemStatus_t status;
+    
+    for (;;) {
+        if (xQueueReceive(xQueueSystemStatus, &status, pdMS_TO_TICKS(100)) == pdPASS) {
+            Serial.println("\n=== System Status ===");
+            Serial.print("System : ");
+            Serial.println(status.systemStatus ? "AKTIF" : "NONAKTIF");
+            Serial.print("Alarm  : ");
+            Serial.println(status.alarmStatus ? "AKTIF" : "NONAKTIF");
+            Serial.print("Door   : ");
+            Serial.println(status.doorStatus ? "TERBUKA" : "TERTUTUP");
+            Serial.println("===================\n");
+        }
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
-    vTaskDelay(pdMS_TO_TICKS(1000));
-  }
 }
 
 // Fungsi untuk memeriksa UID dengan list akses sah

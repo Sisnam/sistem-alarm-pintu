@@ -140,21 +140,19 @@ int receiveString(char *buffer, int size)
 
 void setUpSerialDashboard()
 {
-	USARTE0_BAUDCTRLB = 0;	  // Ensure BSCALE is 0
-	USARTE0_BAUDCTRLA = 0x0C; // Set baud rate
-
-	// Disable interrupts, just for safety
-	USARTE0_CTRLA = 0;
-	// 8 data bits, no parity, 1 stop bit
-	USARTE0_CTRLC = USART_CHSIZE_8BIT_gc;
-	// Enable receive and transmit
-	USARTE0_CTRLB = USART_TXEN_bm | USART_RXEN_bm;
-
+	// Configure USARTE0 pins first
 	PORTE_OUTSET = PIN3_bm; // PE3 as TX
 	PORTE_DIRSET = PIN3_bm; // TX pin as output
-
+	
 	PORTE_OUTCLR = PIN2_bm; // PE2 as RX
 	PORTE_DIRCLR = PIN2_bm; // RX pin as input
+	
+	// Configure USARTE0
+	USARTE0_BAUDCTRLB = 0;
+	USARTE0_BAUDCTRLA = 0x0C;  // For 9600 baud rate
+	
+	USARTE0_CTRLC = USART_CHSIZE_8BIT_gc | USART_PMODE_DISABLED_gc;
+	USARTE0_CTRLB = USART_RXEN_bm | USART_TXEN_bm;  // Enable RX and TX
 }
 
 /* Send char to Dashboard */
@@ -554,38 +552,33 @@ static portTASK_FUNCTION(vAccessStatusControl, pvParameters)
 /************************************************************************/
 static portTASK_FUNCTION(vReceiveSystemCommand, pvParameters)
 {
-	setUpSerialDashboard();
-	
 	char buffer[DASHBOARD_BUFFER_SIZE];
+	
+	// Initialize USART E
+	setUpSerialDashboard();
 
 	while (1)
 	{
-		int len = receiveStringE(buffer, BUFFER_SIZE);
-		if (len > 0){
-			if (strcmp(buffer, "S:1") == 0){
-				// Aktifkan sistem
-				if (xSemaphoreTake(xMutexSystemActive, portMAX_DELAY) == pdTRUE)
+		if (USARTE0.STATUS & USART_RXCIF_bm)  // Check if data is available
+		{
+			int len = receiveStringE(buffer, DASHBOARD_BUFFER_SIZE);
+			if (len > 0){
+				// Take mutex before modifying system state
+				if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(100)) == pdTRUE)
 				{
-					system_active = true;
-					gfx_mono_draw_string("Sistem: Aktif    ", 0, 8, &sysfont);
-					xSemaphoreGive(xMutexSystemActive);
-				}
-			}
-			else if (strcmp(buffer, "S:0") == 0){
-				// Nonaktifkan sistem
-				if (xSemaphoreTake(xMutexSystemActive, portMAX_DELAY) == pdTRUE)
-				{
-					if (xSemaphoreTake(xMutexSystemDeactive,  pdMS_TO_TICKS(250)) == pdTRUE)
-					{
-						system_active = false;
-						reset_actuators();
-						reset_lcd();
-						gfx_mono_draw_string("Sistem: Nonaktif ", 0, 8, &sysfont);
-
-						system_deactive = true; // Tandai bahwa sistem telah dinonaktifkan
-						alarm_active = false;  // Nonaktifkan alarm jika aktif
-						
-						xSemaphoreGive(xMutexSystemDeactive);
+					if (strcmp(buffer, "S:1") == 0){
+						system_active = true;
+						gfx_mono_draw_string("Sistem: Aktif    ", 0, 8, &sysfont);
+					}
+					else if (strcmp(buffer, "S:0") == 0){
+						if (xSemaphoreTake(xMutexSystemDeactive, pdMS_TO_TICKS(100)) == pdTRUE){
+							system_active = false;
+							system_deactive = true;
+							alarm_active = false;
+							reset_actuators();
+							reset_lcd();
+							xSemaphoreGive(xMutexSystemDeactive);
+						}
 					}
 					xSemaphoreGive(xMutexSystemActive);
 				}
@@ -597,22 +590,27 @@ static portTASK_FUNCTION(vReceiveSystemCommand, pvParameters)
 
 static portTASK_FUNCTION(vSendSystemStatus, pvParameters)
 {
+	 // Increased buffer size for safety
+	char status_buffer[32];
+	
+	// Initialize USART E
 	setUpSerialDashboard();
 
 	while (1)
 	{
-		if (xSemaphoreTake(xMutexSystemActive, portMAX_DELAY) == pdTRUE)
+		if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(100)) == pdTRUE)
 		{
-			char system_status = system_active ? '1' : '0';
-			char alarm_status = alarm_active ? '1' : '0';
-			char door_status = (PORTE.IN & PIN0_bm) ? '1' : '0';
-
-			// Format string status
-			snprintf(strbuf, sizeof(strbuf), "S:%c|A:%c|P:%c\n", system_status, alarm_status, door_status);
-
-			// Kirim string ke dashboard
-			sendStringE(strbuf);
-
+			// Prepare status string
+			snprintf(status_buffer, sizeof(status_buffer), "S:%c|A:%c|P:%c\n",
+				system_active ? '1' : '0',
+				alarm_active ? '1' : '0',
+				(PORTE.IN & PIN0_bm) ? '1' : '0');
+			
+			char *ptr = status_buffer;
+			while (*ptr)
+			{
+				sendCharE(*ptr++);
+			}
 			xSemaphoreGive(xMutexSystemActive);
 		}
 
@@ -649,8 +647,8 @@ int main(void)
 	xTaskCreate(vAlarmControl, "AlarmControl", 1000, NULL, tskIDLE_PRIORITY + 1, NULL);
 	xTaskCreate(vListenUART, "Receive Access Status", 1000, NULL, tskIDLE_PRIORITY + 1, NULL);
 	xTaskCreate(vAccessStatusControl, "Control Access Status", 1000, NULL, tskIDLE_PRIORITY + 2, NULL);
-	// xTaskCreate(vReceiveSystemCommand, "Receive System Command", 1000, NULL, tskIDLE_PRIORITY + 3, NULL);
-	// xTaskCreate(vSendSystemStatus, "Send System Status", 1000, NULL, tskIDLE_PRIORITY + 2, NULL);
+	xTaskCreate(vReceiveSystemCommand, "Receive System Command", 1000, NULL, tskIDLE_PRIORITY + 2, NULL);
+	xTaskCreate(vSendSystemStatus, "Send System Status", 1000, NULL, tskIDLE_PRIORITY + 1, NULL);
 
 	// Start Scheduler
 	vTaskStartScheduler();
