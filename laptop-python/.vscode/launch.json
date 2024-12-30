@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "C/C++ Runner: Debug Session",
+      "type": "lldb",
+      "request": "launch",
+      "args": [],
+      "cwd": "/Users/danenherdi/Documents/code/sistem_tertanam/sistem-alarm-pintu/laptop-python",
+      "program": "/Users/danenherdi/Documents/code/sistem_tertanam/sistem-alarm-pintu/laptop-python/build/Debug/outDebug"
+    }
+  ]
+}

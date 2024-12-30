@@ -124,15 +124,19 @@ void TaskHandleData(void *pvParameters) {
       // Kirim log ke dashboard melalui Serial
       String UID = convertUIDToString(receivedPacket.detectedUID);
       String accessGranted = receivedPacket.accessGranted ? "TRUE" : "FALSE";
+      
+      delay(25);
+
+      // Kirim status ke ATmega melalui Serial1 (TRUE/FALSE saja)
+      sendToAtmega(receivedPacket.accessGranted);
+
+      // Kirim status ke Dashboard melalui Serial (UID dan TRUE/FALSE)
       sendLogToDashboard(UID, accessGranted);
 
       // Rotasi servo
       if (receivedPacket.accessGranted) {
         rotateServo();
       }
-
-      // Kirim status ke ATmega melalui Serial1 (TRUE/FALSE saja)
-      sendToAtmega(receivedPacket.accessGranted);
     }
 
     vTaskDelay(50 / portTICK_PERIOD_MS);  // Delay untuk menjaga task tetap berjalan
