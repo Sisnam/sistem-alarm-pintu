@@ -590,8 +590,11 @@ static portTASK_FUNCTION(vReceiveSystemCommand, pvParameters)
 
 static portTASK_FUNCTION(vSendSystemStatus, pvParameters)
 {
-	 // Increased buffer size for safety
+	// Increased buffer size for safety
 	char status_buffer[32];
+	bool dashboard_connected = false;
+	uint8_t retry_count = 0;
+	const uint8_t MAX_RETRIES = 3;
 	
 	// Initialize USART E
 	setUpSerialDashboard();
@@ -600,21 +603,55 @@ static portTASK_FUNCTION(vSendSystemStatus, pvParameters)
 	{
 		if (xSemaphoreTake(xMutexSystemActive, pdMS_TO_TICKS(100)) == pdTRUE)
 		{
-			// Prepare status string
-			snprintf(status_buffer, sizeof(status_buffer), "S:%c|A:%c|P:%c\n",
-				system_active ? '1' : '0',
-				alarm_active ? '1' : '0',
-				(PORTE.IN & PIN0_bm) ? '1' : '0');
 			
-			char *ptr = status_buffer;
-			while (*ptr)
-			{
-				sendCharE(*ptr++);
+			// Check if USART E is ready for transmission
+			if (USARTE0.STATUS & USART_DREIF_bm){
+				// Try sending a test byte to check connection
+				sendCharE('\n');
+				
+				// If transmission successful, consider dashboard connected
+				if (USARTE0.STATUS & USART_TXCIF_bm)
+				{
+					dashboard_connected = true;
+					retry_count = 0;
+				}
+				else{
+					retry_count++;
+					if (retry_count >= MAX_RETRIES)
+					{
+						dashboard_connected = false;
+						retry_count = 0;
+					}
+				}
+				// Only send status if dashboard is connected
+				if (dashboard_connected){
+					// Prepare status string
+					snprintf(status_buffer, sizeof(status_buffer), "S:%c|A:%c|P:%c\n",
+						system_active ? '1' : '0',
+						alarm_active ? '1' : '0',
+						(PORTE.IN & PIN0_bm) ? '1' : '0');
+					char *ptr = status_buffer;
+					while (*ptr && dashboard_connected){
+						if (USARTE0.STATUS & USART_DREIF_bm)
+						{
+							sendCharE(*ptr++);
+						}
+						else
+						{
+							dashboard_connected = false;
+							break;
+						}
+					}
+				}
+			}
+			else{
+				dashboard_connected = false;
 			}
 			xSemaphoreGive(xMutexSystemActive);
 		}
-
-		vTaskDelay(pdMS_TO_TICKS(1000)); // Kirim status setiap 1 detik
+		
+		// Longer delay when not connected, shorter when connected
+		vTaskDelay(pdMS_TO_TICKS(dashboard_connected ? 1000 : 2000));
 	}
 }
 
