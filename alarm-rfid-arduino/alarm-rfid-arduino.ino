@@ -40,6 +40,11 @@ Servo myservo;
 
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 
+// Pin Definitions for Common Cathode RGB LED
+#define RED_PIN 11
+#define GREEN_PIN 12
+#define BLUE_PIN 8
+
 // List of Authorized UIDs TODO:Masukkan UID kartu
 const byte authorizedUIDs[][4] = {
   //{0xDE, 0xAD, 0xBE, 0xEF},  // contoh UID Kartu
@@ -71,7 +76,19 @@ void setup() {
   SPI.begin();
   mfrc522.PCD_Init();
 
+  pinMode(RED_PIN, OUTPUT);
+  pinMode(GREEN_PIN, OUTPUT);
+  pinMode(BLUE_PIN, OUTPUT);
+  
+  // Turn off all LEDs initially
+  digitalWrite(RED_PIN, LOW);
+  digitalWrite(GREEN_PIN, LOW);
+  digitalWrite(BLUE_PIN, LOW);
+
   Serial.println("RFID Reader Ready...");
+  
+  // Turn on Blue LED for idle
+  digitalWrite(BLUE_PIN, HIGH);
 
   // Initialize Servo
   myservo.attach(SERVO_PIN);
@@ -120,7 +137,10 @@ void TaskHandleData(void *pvParameters) {
   DataPacket_t receivedPacket;
 
   for (;;) {
-    if (xQueueReceive(xQueueAccessGranted, &receivedPacket, pdMS_TO_TICKS(100)) == pdPASS) {
+    if (xQueueReceive(xQueueAccessGranted, &receivedPacket, pdMS_TO_TICKS(100)) == pdPASS) { 
+      // Turn off Blue LED while processing
+      digitalWrite(BLUE_PIN, LOW);   
+        
       // Kirim log ke dashboard melalui Serial
       String UID = convertUIDToString(receivedPacket.detectedUID);
       String accessGranted = receivedPacket.accessGranted ? "TRUE" : "FALSE";
@@ -136,6 +156,16 @@ void TaskHandleData(void *pvParameters) {
       // Rotasi servo
       if (receivedPacket.accessGranted) {
         rotateServo();
+      }
+      else{
+          digitalWrite(BLUE_PIN, LOW);
+          digitalWrite(RED_PIN, HIGH);
+          digitalWrite(GREEN_PIN, LOW);
+          delay(4000);
+          // After handling, turn back to idle (Blue ON, others OFF)
+          digitalWrite(RED_PIN, LOW);
+          digitalWrite(GREEN_PIN, LOW);
+          digitalWrite(BLUE_PIN, HIGH);
       }
     }
 
@@ -188,6 +218,7 @@ void sendToAtmega(bool accessGranted) {
 }
 
 void rotateServo() {
+  digitalWrite(GREEN_PIN, HIGH);
   int pos;
   for (pos = 90; pos >= 0; pos -= 1) {
     myservo.write(pos);
@@ -200,4 +231,9 @@ void rotateServo() {
     myservo.write(pos);
     delay(5);
   }
+
+  // After handling, turn back to idle (Blue ON, others OFF)
+  digitalWrite(RED_PIN, LOW);
+  digitalWrite(GREEN_PIN, LOW);
+  digitalWrite(BLUE_PIN, HIGH);
 }
