@@ -15,12 +15,23 @@
 #define USART_SERIAL_STOP_BIT false
 #define BUFFER_SIZE 10
 
+/* USART Dashboard */
+#define USART_DASHBOARD &USARTE0
+#define USART_DASHBOARD_BAUDRATE 9600
+#define USART_DASHBOARD_CHAR_LENGTH USART_CHSIZE_8BIT_gc
+#define USART_DASHBOARD_PARITY USART_PMODE_DISABLED_gc
+#define USART_DASHBOARD_STOP_BIT false
+#define DASHBOARD_BUFFER_SIZE 10
+
 /* Task Definitions */
 static portTASK_FUNCTION_PROTO(vCheckDoor, pvParameters);
 static portTASK_FUNCTION_PROTO(vAlarmControl, pvParameters);
 static portTASK_FUNCTION_PROTO(vPushButton, pvParameters);
 static portTASK_FUNCTION_PROTO(vListenUART, pvParameters);
 static portTASK_FUNCTION_PROTO(vAccessStatusControl, pvParameters);
+static portTASK_FUNCTION_PROTO(vReceiveSystemCommand, pvParameters);
+static portTASK_FUNCTION_PROTO(vSendSystemStatus, pvParameters);
+
 
 /* Function Prototype */
 void setUpSerial(void);
@@ -30,6 +41,12 @@ void reset_lcd(void);
 char receiveChar(void);
 int receiveString(char *, int);
 void sendChar(char);
+
+void setUpSerialDashboard(void);
+char receiveCharE(void);
+int receiveStringE(char *, int);
+void sendCharE(char);
+void sendStringE(char *);
 
 /* Global Variables */
 static char strbuf[128];
@@ -79,7 +96,7 @@ void setUpSerial()
 void sendChar(char c)
 {
 	while (!(USARTC0_STATUS & USART_DREIF_bm))
-		; // Wait until DATA buffer is empty
+	; // Wait until DATA buffer is empty
 	delay_ms(10);
 	USARTC0_DATA = c;
 }
@@ -88,7 +105,7 @@ void sendChar(char c)
 char receiveChar()
 {
 	while (!(USARTC0_STATUS & USART_RXCIF_bm))
-		; // Wait until receive finish
+	; // Wait until receive finish
 
 	return USARTC0_DATA;
 }
@@ -106,6 +123,80 @@ int receiveString(char *buffer, int size)
 	while (index < size - 1)
 	{ // Leave space for null terminator
 		c = receiveChar();
+
+		// Check for newline or carriage return
+		if (c == '\n' || c == '\r')
+		{
+			break;
+		}
+
+		buffer[index++] = c;
+	}
+
+	buffer[index] = '\0'; // Null terminate
+	return index;		  // Return the number of characters read
+}
+
+
+void setUpSerialDashboard()
+{
+	USARTE0_BAUDCTRLB = 0;	  // Ensure BSCALE is 0
+	USARTE0_BAUDCTRLA = 0x0C; // Set baud rate
+
+	// Disable interrupts, just for safety
+	USARTE0_CTRLA = 0;
+	// 8 data bits, no parity, 1 stop bit
+	USARTE0_CTRLC = USART_CHSIZE_8BIT_gc;
+	// Enable receive and transmit
+	USARTE0_CTRLB = USART_TXEN_bm | USART_RXEN_bm;
+
+	PORTE_OUTSET = PIN3_bm; // PE3 as TX
+	PORTE_DIRSET = PIN3_bm; // TX pin as output
+
+	PORTE_OUTCLR = PIN2_bm; // PE2 as RX
+	PORTE_DIRCLR = PIN2_bm; // RX pin as input
+}
+
+/* Send char to Dashboard */
+void sendCharE(char c)
+{
+	while (!(USARTE0_STATUS & USART_DREIF_bm))
+	; // Wait until DATA buffer is empty
+	delay_ms(10);
+	USARTE0_DATA = c;
+}
+
+void sendStringE(char *text)
+{
+	while(*text)
+	{
+		sendCharE(*text);
+		text++;
+	}
+}
+
+/* Receive char from Dashboard */
+char receiveCharE()
+{
+	while (!(USARTE0_STATUS & USART_RXCIF_bm))
+	; // Wait until receive finish
+
+	return USARTE0_DATA;
+}
+
+int receiveStringE(char *buffer, int size)
+{
+	char c;
+	int index = 0;
+
+	for (int i = 0; i < size; i++)
+	{
+		buffer[i] = '\0';
+	}
+
+	while (index < size - 1)
+	{ // Leave space for null terminator
+		c = receiveCharE();
 
 		// Check for newline or carriage return
 		if (c == '\n' || c == '\r')
@@ -381,7 +472,7 @@ static portTASK_FUNCTION(vListenUART, pvParameters)
 		.baudrate = USART_SERIAL_EXAMPLE_BAUDRATE,
 		.charlength = USART_SERIAL_CHAR_LENGTH,
 		.paritytype = USART_SERIAL_PARITY,
-		.stopbits = USART_SERIAL_STOP_BIT};
+	.stopbits = USART_SERIAL_STOP_BIT};
 
 	usart_init_rs232(USART_SERIAL_EXAMPLE, &USART_SERIAL_OPTIONS);
 
@@ -459,6 +550,78 @@ static portTASK_FUNCTION(vAccessStatusControl, pvParameters)
 }
 
 /************************************************************************/
+/* Receive Dashboard Arduino Communication                              */
+/************************************************************************/
+static portTASK_FUNCTION(vReceiveSystemCommand, pvParameters)
+{
+	setUpSerialDashboard();
+	
+	char buffer[DASHBOARD_BUFFER_SIZE];
+
+	while (1)
+	{
+		int len = receiveStringE(buffer, BUFFER_SIZE);
+		if (len > 0){
+			if (strcmp(buffer, "S:1") == 0){
+				// Aktifkan sistem
+				if (xSemaphoreTake(xMutexSystemActive, portMAX_DELAY) == pdTRUE)
+				{
+					system_active = true;
+					gfx_mono_draw_string("Sistem: Aktif    ", 0, 8, &sysfont);
+					xSemaphoreGive(xMutexSystemActive);
+				}
+			}
+			else if (strcmp(buffer, "S:0") == 0){
+				// Nonaktifkan sistem
+				if (xSemaphoreTake(xMutexSystemActive, portMAX_DELAY) == pdTRUE)
+				{
+					if (xSemaphoreTake(xMutexSystemDeactive,  pdMS_TO_TICKS(250)) == pdTRUE)
+					{
+						system_active = false;
+						reset_actuators();
+						reset_lcd();
+						gfx_mono_draw_string("Sistem: Nonaktif ", 0, 8, &sysfont);
+
+						system_deactive = true; // Tandai bahwa sistem telah dinonaktifkan
+						alarm_active = false;  // Nonaktifkan alarm jika aktif
+						
+						xSemaphoreGive(xMutexSystemDeactive);
+					}
+					xSemaphoreGive(xMutexSystemActive);
+				}
+			}
+		}
+		vTaskDelay(pdMS_TO_TICKS(100));
+	}
+}
+
+static portTASK_FUNCTION(vSendSystemStatus, pvParameters)
+{
+	setUpSerialDashboard();
+
+	while (1)
+	{
+		if (xSemaphoreTake(xMutexSystemActive, portMAX_DELAY) == pdTRUE)
+		{
+			char system_status = system_active ? '1' : '0';
+			char alarm_status = alarm_active ? '1' : '0';
+			char door_status = (PORTE.IN & PIN0_bm) ? '1' : '0';
+
+			// Format string status
+			snprintf(strbuf, sizeof(strbuf), "S:%c|A:%c|P:%c\n", system_status, alarm_status, door_status);
+
+			// Kirim string ke dashboard
+			sendStringE(strbuf);
+
+			xSemaphoreGive(xMutexSystemActive);
+		}
+
+		vTaskDelay(pdMS_TO_TICKS(1000)); // Kirim status setiap 1 detik
+	}
+}
+
+
+/************************************************************************/
 /* Main Function                                                        */
 /************************************************************************/
 int main(void)
@@ -486,6 +649,8 @@ int main(void)
 	xTaskCreate(vAlarmControl, "AlarmControl", 1000, NULL, tskIDLE_PRIORITY + 1, NULL);
 	xTaskCreate(vListenUART, "Receive Access Status", 1000, NULL, tskIDLE_PRIORITY + 1, NULL);
 	xTaskCreate(vAccessStatusControl, "Control Access Status", 1000, NULL, tskIDLE_PRIORITY + 2, NULL);
+	// xTaskCreate(vReceiveSystemCommand, "Receive System Command", 1000, NULL, tskIDLE_PRIORITY + 3, NULL);
+	// xTaskCreate(vSendSystemStatus, "Send System Status", 1000, NULL, tskIDLE_PRIORITY + 2, NULL);
 
 	// Start Scheduler
 	vTaskStartScheduler();
