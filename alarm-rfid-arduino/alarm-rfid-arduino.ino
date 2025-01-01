@@ -71,8 +71,8 @@ void TaskReadRFID(void *pvParameters);
 void TaskHandleData(void *pvParameters);
 
 void setup() {
-  Serial.begin(9600);   // UART ke ATMega
-  Serial1.begin(9600);  // UART ke Dashboard
+  Serial.begin(9600);   // UART ke Dashboard
+  Serial1.begin(9600);  // UART ke ATmega
   SPI.begin();
   mfrc522.PCD_Init();
 
